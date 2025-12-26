@@ -27,10 +27,17 @@ Manage repository configurations and secrets.
 
 ### Application Management
 
-- **`init <profile> --app-id <id> --base-url <url> --repo-pubkey-sha256 <hex> --dest <path>`**:
+- **`init <profile> --app-id <id> --base-url <url> --repo-pubkey-sha256 <hex> --dest <path> [--repo-id <repo-id>] [--nexus-user <user>] [--store-credentials] [--nexus-password <pass>]`**:
   Creates a local profile for an application.
-- **`get <profile>`**:
-  Installs or updates the application. Verifies the repository public key fingerprint and the manifest signature. Performs an atomic update with a backup of the previous version.
+  - `--repo-id`: Link the profile to a specific repository.
+  - `--nexus-user`: Set the username for the repository.
+  - `--store-credentials`: Securely store Nexus credentials in the OS keyring.
+  - `--nexus-password`: Provide the password for storage (if omitted, it will be prompted in interactive mode).
+- **`get <profile> [--use-keyring] [--non-interactive] [--verbose]`**:
+  Installs or updates the application.
+  - Authentication: prioritized as ENV variables (`ITRUST_NEXUS_USERNAME`, `ITRUST_NEXUS_PASSWORD`) > Keyring (if `--use-keyring` and `repo-id` is set) > Interactive prompt.
+  - In non-interactive mode, if credentials are missing, it will fail with a clear message.
+  - Verifies the repository public key fingerprint and the manifest signature. Performs an atomic update with a backup of the previous version.
 - **`status <profile>`**:
   Shows installation status and checks for updates. Performs secure manifest verification.
 - **`push --artifact-path <path> [--repo-id <id>] [--app-id <id>] [--version <ver>]`**:

@@ -53,7 +53,10 @@ func main() {
 	initPubkeySha := initCmd.String("", "repo-pubkey-sha256", &argparse.Options{Required: true, Help: "Expected SHA256 of repository public key"})
 	initDest := initCmd.String("", "dest", &argparse.Options{Required: true, Help: "Destination path for artifact"})
 	initBackend := initCmd.String("", "backend", &argparse.Options{Default: "nexus", Help: "Repository backend type"})
-	initUser := initCmd.String("", "auth-user", &argparse.Options{Help: "Repository username"})
+	initRepoID := initCmd.String("", "repo-id", &argparse.Options{Help: "Repository ID"})
+	initUser := initCmd.String("", "nexus-user", &argparse.Options{Help: "Nexus username"})
+	initStoreCreds := initCmd.Flag("", "store-credentials", &argparse.Options{Help: "Store credentials in OS keyring"})
+	initPass := initCmd.String("", "nexus-password", &argparse.Options{Help: "Nexus password (used with --store-credentials)"})
 
 	// Get command
 	getCmd := parser.NewCommand("get", "Install or update an application")
@@ -130,7 +133,7 @@ func main() {
 
 	switch {
 	case initCmd.Happened():
-		handleInit(*initProfile, *initBaseURL, *initAppID, *initChannel, *initPubkeySha, *initDest, *initBackend, *initUser)
+		handleInit(*initProfile, *initBaseURL, *initAppID, *initChannel, *initPubkeySha, *initDest, *initBackend, *initRepoID, *initUser, *initPass, *initStoreCreds, *nonInteractive)
 	case getCmd.Happened():
 		handleGet(ctx, *getProfile, *getVersion, *getDest, *getOS, *getArch, *getConfigDir, *getStateDir, *getForce, *nonInteractive, *useKeyring)
 	case statusCmd.Happened():
@@ -189,7 +192,7 @@ func getDefaultStateDir() string {
 	return filepath.Join(home, defaultStateDirLinux)
 }
 
-func handleInit(profile, baseURL, appId, channel, pubkeySha, dest, backendType, user string) {
+func handleInit(profile, baseURL, appId, channel, pubkeySha, dest, backendType, repoID, user, password string, storeCreds, nonInteractive bool) {
 	configDir := getDefaultConfigDir()
 	profilePath := filepath.Join(configDir, "apps", profile+".env")
 	if err := os.MkdirAll(filepath.Dir(profilePath), 0755); err != nil {
@@ -198,8 +201,34 @@ func handleInit(profile, baseURL, appId, channel, pubkeySha, dest, backendType, 
 
 	content := fmt.Sprintf("ITRUST_BASE_URL=%s\nITRUST_APP_ID=%s\nITRUST_CHANNEL=%s\nITRUST_REPO_PUBKEY_SHA256=%s\nITRUST_DEST=%s\nITRUST_BACKEND=%s\n",
 		baseURL, appId, channel, pubkeySha, dest, backendType)
+	if repoID != "" {
+		content += fmt.Sprintf("ITRUST_REPO_ID=%s\n", repoID)
+	}
 	if user != "" {
 		content += fmt.Sprintf("ITRUST_NEXUS_USERNAME=%s\n", user)
+	}
+
+	if storeCreds {
+		if repoID == "" {
+			logger.Fatal("--repo-id is required when using --store-credentials")
+		}
+		pass := password
+		if pass == "" && !nonInteractive {
+			fmt.Printf("Enter password for %s: ", user)
+			fmt.Scanln(&pass)
+		}
+		if pass == "" {
+			logger.Fatal("Password is required for --store-credentials (provide via --nexus-password or interactive prompt)")
+		}
+
+		ss := &secrets.KeyringSecretStore{}
+		if err := ss.Set("itrust-updater", "nexus:"+repoID+":username", user); err != nil {
+			logger.Fatalf("Failed to store username in keyring: %v", err)
+		}
+		if err := ss.Set("itrust-updater", "nexus:"+repoID+":password", pass); err != nil {
+			logger.Fatalf("Failed to store password in keyring: %v", err)
+		}
+		fmt.Println("Credentials stored in OS keyring.")
 	}
 
 	if err := os.WriteFile(profilePath, []byte(content), 0600); err != nil {
@@ -256,6 +285,7 @@ func handleGet(ctx context.Context, profile, version, destOverride, goos, goarch
 
 	username := cfg.Get("ITRUST_NEXUS_USERNAME", "")
 	password := os.Getenv("ITRUST_NEXUS_PASSWORD")
+
 	if password == "" && useKeyring && repoID != "" {
 		ss := &secrets.KeyringSecretStore{}
 		if username == "" {
@@ -267,6 +297,25 @@ func handleGet(ctx context.Context, profile, version, destOverride, goos, goarch
 	// Backward compatibility for non-multi-repo keyring
 	if password == "" && useKeyring && username != "" {
 		password, _ = keyring.Get("itrust-updater", username)
+	}
+
+	if password == "" && !nonInteractive {
+		if username == "" {
+			fmt.Print("Enter Nexus username: ")
+			fmt.Scanln(&username)
+		}
+		if username != "" {
+			fmt.Printf("Enter Nexus password for %s: ", username)
+			fmt.Scanln(&password)
+		}
+	}
+
+	if password == "" && username != "" && nonInteractive {
+		logger.Fatal("Nexus password is required but not provided (use ITRUST_NEXUS_PASSWORD or init --store-credentials)")
+	}
+
+	if password == "" && username == "" && nonInteractive {
+		logger.Debug("No Nexus credentials provided, proceeding without auth")
 	}
 
 	var b backend.Backend
