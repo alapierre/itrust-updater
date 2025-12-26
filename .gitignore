@@ -1,0 +1,4 @@
+/cmd/itrust-updater/itrust-updater
+*.iml
+.idea
+/itrust-updater

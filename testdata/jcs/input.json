@@ -1,0 +1,17 @@
+{
+  "repo": {
+    "name": "Test Repo",
+    "id": "test-repo"
+  },
+  "app": {
+    "name": "Test App",
+    "id": "test-app"
+  },
+  "version": "1.0.0",
+  "list": [
+    3,
+    2,
+    1
+  ],
+  "active": true
+}
