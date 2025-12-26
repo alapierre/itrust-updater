@@ -26,13 +26,7 @@ jobs:
 
       - name: Build
         run: go build -v -o itrust-updater ./cmd/itrust-updater
-  sonarqube:
-    name: SonarQube
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
+
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v6
         env:
