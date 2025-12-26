@@ -23,8 +23,10 @@ import (
 	"github.com/alapierre/itrust-updater/pkg/repo"
 	"github.com/alapierre/itrust-updater/pkg/secrets"
 	"github.com/alapierre/itrust-updater/pkg/sign"
+	"github.com/alapierre/itrust-updater/version"
 	"github.com/sirupsen/logrus"
 	"github.com/zalando/go-keyring"
+	"golang.org/x/term"
 )
 
 var logger = logging.Component("cmd/itrust-updater")
@@ -81,6 +83,7 @@ func main() {
 	pushAppID := pushCmd.String("", "app-id", &argparse.Options{Help: "Application ID"})
 	pushVersion := pushCmd.String("", "version", &argparse.Options{Help: "Version to push"})
 	pushRunHooks := pushCmd.Flag("", "run-hooks", &argparse.Options{Default: true, Help: "Run pre-push hooks"})
+	pushForce := pushCmd.Flag("", "force", &argparse.Options{Help: "Allow overwriting an existing release (dangerous)"})
 
 	// Manifest command
 	manCmd := parser.NewCommand("manifest", "Manifest utilities")
@@ -116,6 +119,9 @@ func main() {
 	repoImportIn := repoImport.String("", "in", &argparse.Options{Help: "Input file path (default: stdin)"})
 	repoImportWriteConfig := repoImport.Flag("", "write-repo-config", &argparse.Options{Default: true, Help: "Write repo configuration file"})
 
+	// Version command
+	versionCmd := parser.NewCommand("version", "Show application version")
+
 	err := parser.Parse(os.Args)
 	if err != nil {
 		fmt.Print(parser.Usage(err))
@@ -132,14 +138,16 @@ func main() {
 	ctx := context.Background()
 
 	switch {
+	case versionCmd.Happened():
+		handleVersion()
 	case initCmd.Happened():
 		handleInit(*initProfile, *initBaseURL, *initAppID, *initChannel, *initPubkeySha, *initDest, *initBackend, *initRepoID, *initUser, *initPass, *initStoreCreds, *nonInteractive)
 	case getCmd.Happened():
 		handleGet(ctx, *getProfile, *getVersion, *getDest, *getOS, *getArch, *getConfigDir, *getStateDir, *getForce, *nonInteractive, *useKeyring)
 	case statusCmd.Happened():
-		handleStatus(ctx, *statusProfile)
+		handleStatus(ctx, *statusProfile, *nonInteractive, *useKeyring)
 	case pushCmd.Happened():
-		handlePush(ctx, *pushConfig, *pushArtifactPath, *pushRepoID, *pushAppID, *pushVersion, *pushRunHooks, *nonInteractive, *useKeyring)
+		handlePush(ctx, *pushConfig, *pushArtifactPath, *pushRepoID, *pushAppID, *pushVersion, *pushRunHooks, *pushForce, *nonInteractive, *useKeyring)
 	case manVerify.Happened():
 		handleManifestVerify(*manVerifyFile, *manVerifyPubKey, *manVerifyPubKeySha)
 	case manSign.Happened():
@@ -153,6 +161,22 @@ func main() {
 	case repoImport.Happened():
 		handleRepoImport(*repoImportIn, *repoImportWriteConfig, *useKeyring)
 	}
+}
+
+func handleVersion() {
+	fmt.Printf("itrust-updater\n")
+	fmt.Printf("Copyrights ITrust sp. z o.o.\n")
+	fmt.Printf("Version: %s\n", version.Version)
+}
+
+func readPassword(prompt string) (string, error) {
+	fmt.Print(prompt)
+	bytePassword, err := term.ReadPassword(int(os.Stdin.Fd()))
+	if err != nil {
+		return "", err
+	}
+	fmt.Println() // Add a newline after the password entry
+	return strings.TrimSpace(string(bytePassword)), nil
 }
 
 func getPaths(customConfigDir, customStateDir string) (string, string) {
@@ -214,8 +238,11 @@ func handleInit(profile, baseURL, appId, channel, pubkeySha, dest, backendType, 
 		}
 		pass := password
 		if pass == "" && !nonInteractive {
-			fmt.Printf("Enter password for %s: ", user)
-			fmt.Scanln(&pass)
+			var err error
+			pass, err = readPassword(fmt.Sprintf("Enter password for %s: ", user))
+			if err != nil {
+				logger.Fatalf("Failed to read password: %v", err)
+			}
 		}
 		if pass == "" {
 			logger.Fatal("Password is required for --store-credentials (provide via --nexus-password or interactive prompt)")
@@ -305,8 +332,11 @@ func handleGet(ctx context.Context, profile, version, destOverride, goos, goarch
 			fmt.Scanln(&username)
 		}
 		if username != "" {
-			fmt.Printf("Enter Nexus password for %s: ", username)
-			fmt.Scanln(&password)
+			var err error
+			password, err = readPassword(fmt.Sprintf("Enter Nexus password for %s: ", username))
+			if err != nil {
+				logger.Fatalf("Failed to read password: %v", err)
+			}
 		}
 	}
 
@@ -420,7 +450,7 @@ func fetchAndVerifyManifest(ctx context.Context, b backend.Backend, appId, chann
 	return &m, pubKey, nil
 }
 
-func handleStatus(ctx context.Context, profile string) {
+func handleStatus(ctx context.Context, profile string, nonInteractive, useKeyring bool) {
 	configDir, stateDir := getPaths("", "")
 	cfg := loadMergedConfig(configDir, profile)
 
@@ -468,9 +498,45 @@ func handleStatus(ctx context.Context, profile string) {
 		return
 	}
 
+	username := cfg.Get("ITRUST_NEXUS_USERNAME", "")
+	password := os.Getenv("ITRUST_NEXUS_PASSWORD")
+
+	if password == "" && useKeyring && repoID != "" {
+		ss := &secrets.KeyringSecretStore{}
+		if username == "" {
+			username, _ = ss.Get("itrust-updater", "nexus:"+repoID+":username")
+		}
+		password, _ = ss.Get("itrust-updater", "nexus:"+repoID+":password")
+	}
+
+	// Backward compatibility for non-multi-repo keyring
+	if password == "" && useKeyring && username != "" {
+		password, _ = keyring.Get("itrust-updater", username)
+	}
+
+	if password == "" && !nonInteractive {
+		if username == "" {
+			fmt.Print("Enter Nexus username: ")
+			fmt.Scanln(&username)
+		}
+		if username != "" {
+			var err error
+			password, err = readPassword(fmt.Sprintf("Enter Nexus password for %s: ", username))
+			if err != nil {
+				fmt.Printf("Latest Version:    unverified (failed to read password: %v)\n", err)
+				return
+			}
+		}
+	}
+
+	if password == "" && username != "" && nonInteractive {
+		fmt.Println("Latest Version:    unverified (missing credentials)")
+		return
+	}
+
 	var b backend.Backend
 	if backendType == "nexus" {
-		b = backend.NewNexusBackend(baseURL, "", "") // status usually doesn't need auth for public manifests
+		b = backend.NewNexusBackend(baseURL, username, password)
 	} else {
 		return
 	}
@@ -491,7 +557,7 @@ func handleStatus(ctx context.Context, profile string) {
 	}
 }
 
-func handlePush(ctx context.Context, configPath, artifactPathFlag, repoIDFlag, appIDFlag, versionFlag string, runHooks, nonInteractive, useKeyring bool) {
+func handlePush(ctx context.Context, configPath, artifactPathFlag, repoIDFlag, appIDFlag, versionFlag string, runHooks, force, nonInteractive, useKeyring bool) {
 	cfg, err := config.LoadFile(configPath)
 	if err != nil {
 		logger.Fatalf("Failed to load project config: %v", err)
@@ -561,8 +627,11 @@ func handlePush(ctx context.Context, configPath, artifactPathFlag, repoIDFlag, a
 		password, _ = keyring.Get("itrust-updater", username)
 	}
 	if password == "" && !nonInteractive {
-		fmt.Printf("Enter password for %s: ", username)
-		fmt.Scanln(&password)
+		var err error
+		password, err = readPassword(fmt.Sprintf("Enter password for %s: ", username))
+		if err != nil {
+			logger.Fatalf("Failed to read password: %v", err)
+		}
 	}
 
 	seed := cfg.Get("ITRUST_REPO_SIGNING_ED25519_SEED_B64", os.Getenv("ITRUST_REPO_SIGNING_ED25519_SEED_B64"))
@@ -610,6 +679,16 @@ func handlePush(ctx context.Context, configPath, artifactPathFlag, repoIDFlag, a
 	var b backend.Backend
 	if backendType == "nexus" {
 		b = backend.NewNexusBackend(baseURL, username, password)
+	}
+
+	// 1.5 Check if release already exists
+	versionManifestPath := fmt.Sprintf("apps/%s/releases/v%s/artifacts.json", appId, version)
+	exists, err := b.Exists(ctx, versionManifestPath)
+	if err != nil {
+		logger.Fatalf("Failed to check if release exists: %v", err)
+	}
+	if exists && !force {
+		logger.Fatalf("Release v%s already exists. Use --force to overwrite.", version)
 	}
 
 	// 2. Upload artifact
@@ -662,7 +741,7 @@ func handlePush(ctx context.Context, configPath, artifactPathFlag, repoIDFlag, a
 		return io.NopCloser(strings.NewReader(string(mJson))), nil
 	}
 
-	versionManifestPath := fmt.Sprintf("apps/%s/releases/v%s/artifacts.json", appId, version)
+	versionManifestPath = fmt.Sprintf("apps/%s/releases/v%s/artifacts.json", appId, version)
 	if err := b.Put(ctx, versionManifestPath, openManifest, "application/json"); err != nil {
 		logger.Fatalf("Failed to upload version manifest: %v", err)
 	}
@@ -735,8 +814,11 @@ func handleManifestSign(payloadPath, outPath, keyId string, useKeyring bool) {
 
 func handleRepoInit(ctx context.Context, repoID, baseURL, user, pass, pubkeyPath string, nonInteractive, useKeyring bool) {
 	if pass == "" && !nonInteractive {
-		fmt.Printf("Enter password for %s: ", user)
-		fmt.Scanln(&pass)
+		var err error
+		pass, err = readPassword(fmt.Sprintf("Enter password for %s: ", user))
+		if err != nil {
+			logger.Fatalf("Failed to read password: %v", err)
+		}
 	}
 	if pass == "" && !nonInteractive {
 		logger.Fatal("Password is required")

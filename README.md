@@ -20,9 +20,9 @@ Manage repository configurations and secrets.
   Use `--use-keyring` to store the generated seed and Nexus credentials securely.
 - **`repo config --repo-id <id>`**:
   Displays a configuration snippet for the given repository (URL, public key path, and fingerprint).
-- **`repo export --repo-id <id>`**:
+- **`repo export --repo-id <id> [--include-seed] [--include-nexus] [--out <file>]`**:
   Creates a bundle (env format) to migrate repository configuration to another machine. Can include the signing seed and Nexus credentials.
-- **`repo import --in <file>`**:
+- **`repo import [--in <file>] [--write-repo-config]`**:
   Imports repository configuration and secrets from an exported bundle.
 
 ### Application Management
@@ -31,27 +31,32 @@ Manage repository configurations and secrets.
   Creates a local profile for an application.
   - `--repo-id`: Link the profile to a specific repository.
   - `--nexus-user`: Set the username for the repository.
-  - `--store-credentials`: Securely store Nexus credentials in the OS keyring.
-  - `--nexus-password`: Provide the password for storage (if omitted, it will be prompted in interactive mode).
-- **`get <profile> [--use-keyring] [--non-interactive] [--verbose]`**:
+  - `--store-credentials`: Securely store Nexus credentials in the OS keyring for the given `repo-id`.
+  - `--nexus-password`: Provide the password for storage (if omitted and not in non-interactive mode, it will be prompted with masking).
+- **`get <profile> [--use-keyring] [--non-interactive] [--verbose] [--force] [--version <ver>]`**:
   Installs or updates the application.
-  - Authentication: prioritized as ENV variables (`ITRUST_NEXUS_USERNAME`, `ITRUST_NEXUS_PASSWORD`) > Keyring (if `--use-keyring` and `repo-id` is set) > Interactive prompt.
+  - **Authentication Hierarchy**:
+    1. ENV variables (`ITRUST_NEXUS_USERNAME`, `ITRUST_NEXUS_PASSWORD`).
+    2. OS Keyring (if `--use-keyring` is set and profile has `repo-id`).
+    3. Interactive prompt (if not `--non-interactive`, supports masked password entry).
   - In non-interactive mode, if credentials are missing, it will fail with a clear message.
   - Verifies the repository public key fingerprint and the manifest signature. Performs an atomic update with a backup of the previous version.
-- **`status <profile>`**:
-  Shows installation status and checks for updates. Performs secure manifest verification.
-- **`push --artifact-path <path> [--repo-id <id>] [--app-id <id>] [--version <ver>]`**:
+- **`status <profile> [--use-keyring] [--non-interactive]`**:
+  Shows installation status and checks for updates. Performs secure manifest verification using the same authentication hierarchy as `get`. If credentials are missing in non-interactive mode, latest version will be shown as `unverified`.
+- **`push --artifact-path <path> [--repo-id <id>] [--app-id <id>] [--version <ver>] [--run-hooks] [--force]`**:
   Publishes a new release. Requires `itrust-updater.project.env` in the current directory or configuration via environment variables or CLI flags.
-  The artifact path, repo ID, app ID, and version can be provided via flags. CLI flags have the highest priority.
+  CLI flags have the highest priority. Supports pre-push hooks (e.g., for binary signing).
+  Releases are immutable by default. Use `--force` to overwrite an existing release.
 
 ### Utilities
 
-- **`manifest verify --file <json> --repo-pubkey <path>`**: Manually verify a manifest.
-- **`manifest sign --payload <json> --out <json> --key-id <id>`**: Manually sign a payload.
+- **`manifest verify --file <json> --repo-pubkey <path> [--repo-pubkey-sha256 <hex>]`**: Manually verify a manifest.
+- **`manifest sign --payload <json> --out <json> --key-id <id> [--use-keyring]`**: Manually sign a payload.
+- **`version`**: Displays application name, copyrights, and version.
 
 ## Multi-Repo Support
 
-`itrust-updater` supports multiple repositories via `ITRUST_REPO_ID`. When a command is run with a specific `repo-id`, it will look for configuration in `<configDir>/repos/<repo-id>.env` and secrets in the OS keyring.
+`itrust-updater` supports multiple repositories via `ITRUST_REPO_ID`. When a command is run with a specific `repo-id`, it will look for configuration in `<configDir>/repos/<repo-id>.env` and secrets in the OS keyring (service: `itrust-updater`).
 
 Example usage:
 ```bash
@@ -88,12 +93,13 @@ Supports `.env` style configuration files and environment variables.
 - **Mandatory Signing**: All manifests must be signed using Ed25519.
 - **Key Pinning**: Fingerprint of the repository public key is verified before any update.
 - **Atomic Replace**: Artifacts are downloaded to a temporary file and renamed atomically.
+- **Masked Input**: Passwords are read from the terminal without echoing.
 - **JCS (RFC 8785)**: JSON Canonicalization Scheme is used for signing consistency.
-- **Keyring**: Securely stores secrets (passwords, signing seeds) using the OS keyring (opt-in via `--use-keyring`).
+- **Keyring**: Securely stores secrets (passwords, signing seeds) using the OS keyring (opt-in via `--use-keyring` or `--store-credentials`).
 
 ## CI/CD Integration
 
-`itrust-updater push` is designed for CI/CD environments. It can run without `repo-id` or local config files if all required data is provided via environment variables.
+`itrust-updater push` is designed for CI/CD environments. It can run without local config files if all required data is provided via environment variables or flags.
 
 ```bash
 # Example GitHub Actions step
@@ -102,5 +108,5 @@ env:
   ITRUST_NEXUS_USERNAME: ${{ secrets.NEXUS_USER }}
   ITRUST_NEXUS_PASSWORD: ${{ secrets.NEXUS_PASS }}
   ITRUST_REPO_SIGNING_ED25519_SEED_B64: ${{ secrets.SIGNING_SEED }}
-run: itrust-updater push --non-interactive --repo-id my-repo --app-id my-app --version 1.0.0 --artifact-path ./build/app --use-keyring
+run: itrust-updater push --non-interactive --app-id my-app --version 1.0.0 --artifact-path ./build/app
 ```
