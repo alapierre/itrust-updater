@@ -683,12 +683,33 @@ func handlePush(ctx context.Context, configPath, artifactPathFlag, repoIDFlag, a
 
 	// 1.5 Check if release already exists
 	versionManifestPath := fmt.Sprintf("apps/%s/releases/v%s/artifacts.json", appId, version)
+	var existingArtifacts []manifest.Artifact
 	exists, err := b.Exists(ctx, versionManifestPath)
 	if err != nil {
 		logger.Fatalf("Failed to check if release exists: %v", err)
 	}
-	if exists && !force {
-		logger.Fatalf("Release v%s already exists. Use --force to overwrite.", version)
+	if exists {
+		// Fetch existing manifest to check for OS/Arch conflict
+		rc, err := b.Get(ctx, versionManifestPath)
+		if err != nil {
+			logger.Fatalf("Failed to fetch existing manifest: %v", err)
+		}
+		var m manifest.Manifest
+		if err := json.NewDecoder(rc).Decode(&m); err != nil {
+			rc.Close()
+			logger.Fatalf("Failed to decode existing manifest: %v", err)
+		}
+		rc.Close()
+
+		existingArtifacts = m.Payload.Latest.Artifacts
+		for _, a := range existingArtifacts {
+			if a.OS == goos && a.Arch == goarch {
+				if !force {
+					logger.Fatalf("Artifact for %s/%s in version v%s already exists. Use --force to overwrite.", goos, goarch, version)
+				}
+				break
+			}
+		}
 	}
 
 	// 2. Upload artifact
@@ -709,13 +730,28 @@ func handlePush(ctx context.Context, configPath, artifactPathFlag, repoIDFlag, a
 	}
 
 	// 4. Create and upload artifacts.json (version manifest)
-	art := manifest.Artifact{
+	newArt := manifest.Artifact{
 		OS:     goos,
 		Arch:   goarch,
 		Type:   "binary",
 		URL:    remoteArtifactPath,
 		Size:   fi.Size(),
 		Sha256: sha256,
+	}
+
+	// Merge with existing artifacts
+	finalArtifacts := make([]manifest.Artifact, 0)
+	found := false
+	for _, a := range existingArtifacts {
+		if a.OS == goos && a.Arch == goarch {
+			finalArtifacts = append(finalArtifacts, newArt)
+			found = true
+		} else {
+			finalArtifacts = append(finalArtifacts, a)
+		}
+	}
+	if !found {
+		finalArtifacts = append(finalArtifacts, newArt)
 	}
 
 	payload := manifest.Payload{
@@ -727,7 +763,7 @@ func handlePush(ctx context.Context, configPath, artifactPathFlag, repoIDFlag, a
 		Latest: manifest.Release{
 			Version:     version,
 			ReleaseDate: time.Now().UTC(),
-			Artifacts:   []manifest.Artifact{art},
+			Artifacts:   finalArtifacts,
 		},
 	}
 

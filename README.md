@@ -46,7 +46,7 @@ Manage repository configurations and secrets.
 - **`push --artifact-path <path> [--repo-id <id>] [--app-id <id>] [--version <ver>] [--run-hooks] [--force]`**:
   Publishes a new release. Requires `itrust-updater.project.env` in the current directory or configuration via environment variables or CLI flags.
   CLI flags have the highest priority. Supports pre-push hooks (e.g., for binary signing).
-  Releases are immutable by default. Use `--force` to overwrite an existing release.
+  Artifacts within a version are immutable by default (protection per OS/Architecture). Use `--force` to overwrite an existing artifact for the same version and platform. Adding artifacts for new platforms to an existing version is allowed.
 
 ### Utilities
 
