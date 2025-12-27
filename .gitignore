@@ -2,3 +2,4 @@
 *.iml
 .idea
 /itrust-updater
+/cmd/itrust-updater/dist/itrust-updater.exe
