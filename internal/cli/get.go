@@ -71,16 +71,6 @@ func handleGet(ctx context.Context, profile, version, destOverride, goos, goarch
 		return fmt.Errorf("missing required configuration (ITRUST_BASE_URL, ITRUST_APP_ID, ITRUST_REPO_PUBKEY_SHA256, ITRUST_DEST)")
 	}
 
-	// Resolve destination if it's a directory
-	if fi, err := os.Stat(dest); err == nil && fi.IsDir() {
-		name := appId
-		if goos == "windows" {
-			name += ".exe"
-		}
-		dest = filepath.Join(dest, name)
-	}
-	logger.Debugf("Resolved destination path: %s", dest)
-
 	username := cfg.Get("ITRUST_NEXUS_USERNAME", "")
 	password := os.Getenv("ITRUST_NEXUS_PASSWORD")
 
@@ -140,6 +130,17 @@ func handleGet(ctx context.Context, profile, version, destOverride, goos, goarch
 		return fmt.Errorf("artifact not found: %w", err)
 	}
 	logger.Debugf("Found artifact: %s", artifact.URL)
+
+	// Resolve destination if it's a directory
+	if fi, err := os.Stat(dest); err == nil && fi.IsDir() {
+		name := appId
+		ext := filepath.Ext(artifact.URL)
+		if ext != "" {
+			name += ext
+		}
+		dest = filepath.Join(dest, name)
+	}
+	logger.Debugf("Resolved destination path: %s", dest)
 
 	// 3. Check state
 	st, err := install.LoadState(stateDir, profile)
