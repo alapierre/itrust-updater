@@ -384,7 +384,7 @@ func handleGet(ctx context.Context, profile, version, destOverride, goos, goarch
 	}
 	defer artifactReader.Close()
 
-	actualSha, err := install.InstallArtifact(artifactReader, dest, artifact.Sha256, stateDir, profile)
+	actualSha, err := install.InstallArtifact(artifactReader, dest, artifact.Sha256, stateDir, profile, artifact.Type)
 	if err != nil {
 		logger.Fatalf("Installation failed: %v", err)
 	}
@@ -671,7 +671,12 @@ func handlePush(ctx context.Context, configPath, artifactPathFlag, repoIDFlag, a
 	}
 
 	ext := ""
-	if goos == "windows" {
+	artifactType := "binary"
+	if strings.HasSuffix(strings.ToLower(artifactPath), ".jar") {
+		artifactType = "jar"
+		goos = "any"
+		goarch = "any"
+	} else if goos == "windows" {
 		ext = ".exe"
 	}
 	remoteArtifactPath := fmt.Sprintf("apps/%s/releases/v%s/%s/%s/%s_%s_%s_%s%s", appId, version, goos, goarch, appId, version, goos, goarch, ext)
@@ -733,7 +738,7 @@ func handlePush(ctx context.Context, configPath, artifactPathFlag, repoIDFlag, a
 	newArt := manifest.Artifact{
 		OS:     goos,
 		Arch:   goarch,
-		Type:   "binary",
+		Type:   artifactType,
 		URL:    remoteArtifactPath,
 		Size:   fi.Size(),
 		Sha256: sha256,

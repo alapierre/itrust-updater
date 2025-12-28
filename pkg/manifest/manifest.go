@@ -109,6 +109,13 @@ func (m *Manifest) Verify(pubKey []byte) error {
 }
 
 func (m *Manifest) FindArtifact(os, arch string) (*Artifact, error) {
+	// First check for multiplatform JAR
+	for _, a := range m.Payload.Latest.Artifacts {
+		if a.Type == "jar" && a.OS == "any" && a.Arch == "any" {
+			return &a, nil
+		}
+	}
+
 	for _, a := range m.Payload.Latest.Artifacts {
 		if a.OS == os && a.Arch == arch {
 			return &a, nil

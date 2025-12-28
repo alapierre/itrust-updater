@@ -57,6 +57,24 @@ func TestManifestSignVerify(t *testing.T) {
 		t.Errorf("Expected linux, got %s", a.OS)
 	}
 
+	// Test find JAR artifact
+	m.Payload.Latest.Artifacts = append(m.Payload.Latest.Artifacts, Artifact{
+		OS:     "any",
+		Arch:   "any",
+		Type:   "jar",
+		URL:    "app.jar",
+		Size:   500,
+		Sha256: "jar-sha",
+	})
+
+	jar, err := m.FindArtifact("windows", "arm64")
+	if err != nil {
+		t.Errorf("FindArtifact JAR failed: %v", err)
+	}
+	if jar.Type != "jar" {
+		t.Errorf("Expected jar, got %s", jar.Type)
+	}
+
 	// Corrupt payload
 	m.Payload.Channel = "corrupted"
 	if err := m.Verify(pubKey); err == nil {

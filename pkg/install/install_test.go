@@ -66,7 +66,7 @@ func TestInstallArtifact_CreateDir(t *testing.T) {
 	src := strings.NewReader("content")
 	expectedSha := "ed7002b439e9ac845f22357d822bac1444730fbdb6016d3ec9432297b9ec9f73" // sha256 of "content"
 
-	sha, err := InstallArtifact(src, dest, expectedSha, stateDir, "test")
+	sha, err := InstallArtifact(src, dest, expectedSha, stateDir, "test", "binary")
 	if err != nil {
 		t.Fatalf("InstallArtifact failed: %v", err)
 	}

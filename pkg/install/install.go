@@ -86,7 +86,7 @@ func SaveState(stateDir, profile string, state *State) error {
 	return nil
 }
 
-func InstallArtifact(src io.Reader, dest string, expectedSha256 string, stateDir, profile string) (string, error) {
+func InstallArtifact(src io.Reader, dest string, expectedSha256 string, stateDir, profile string, artifactType string) (string, error) {
 	destDir := filepath.Dir(dest)
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create destination directory: %v", err)
@@ -133,7 +133,7 @@ func InstallArtifact(src io.Reader, dest string, expectedSha256 string, stateDir
 		return "", err
 	}
 
-	if runtime.GOOS != "windows" {
+	if runtime.GOOS != "windows" && artifactType != "jar" {
 		if err := os.Chmod(dest, 0755); err != nil {
 			return "", err
 		}

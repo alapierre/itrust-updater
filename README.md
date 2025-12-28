@@ -8,6 +8,7 @@ Secure application updater for artifacts. Supports Ed25519 manifest signing, SHA
 - **Repository (Repo)**: A backend storage (Nexus RAW) containing artifacts and manifests. Identified by `repo-id`.
 - **Channel**: Release channel (e.g., `stable`, `beta`).
 - **Security**: Mandatory signature verification and public key pinning (fingerprint verification).
+- **Artifact Types**: Supports `binary` (OS/Arch specific) and `jar` (multi-platform, OS/Arch="any").
 
 ## CLI Commands
 
