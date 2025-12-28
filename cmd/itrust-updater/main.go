@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/akamensky/argparse"
 	"github.com/alapierre/itrust-updater/pkg/backend"
 	"github.com/alapierre/itrust-updater/pkg/config"
 	"github.com/alapierre/itrust-updater/pkg/install"
@@ -24,6 +23,7 @@ import (
 	"github.com/alapierre/itrust-updater/pkg/secrets"
 	"github.com/alapierre/itrust-updater/pkg/sign"
 	"github.com/alapierre/itrust-updater/version"
+	"github.com/alecthomas/kong"
 	"github.com/sirupsen/logrus"
 	"github.com/zalando/go-keyring"
 	"golang.org/x/term"
@@ -39,127 +39,52 @@ const (
 )
 
 func main() {
-	parser := argparse.NewParser("itrust-updater", "Secure application updater for artifacts")
-
-	// Global flags
-	verbose := parser.Flag("v", "verbose", &argparse.Options{Help: "Enable verbose logging"})
-	nonInteractive := parser.Flag("", "non-interactive", &argparse.Options{Help: "Disable interactive prompts"})
-	useKeyring := parser.Flag("", "use-keyring", &argparse.Options{Help: "Use OS keyring for secrets"})
-
-	// Init command
-	initCmd := parser.NewCommand("init", "Initialize a new profile")
-	initProfile := initCmd.StringPositional(&argparse.Options{Required: true, Help: "Profile name"})
-	initBaseURL := initCmd.String("", "base-url", &argparse.Options{Required: true, Help: "Repository base URL"})
-	initAppID := initCmd.String("", "app-id", &argparse.Options{Required: true, Help: "Application ID"})
-	initChannel := initCmd.String("", "channel", &argparse.Options{Default: "stable", Help: "Update channel"})
-	initPubkeySha := initCmd.String("", "repo-pubkey-sha256", &argparse.Options{Required: true, Help: "Expected SHA256 of repository public key"})
-	initDest := initCmd.String("", "dest", &argparse.Options{Required: true, Help: "Destination path for artifact"})
-	initBackend := initCmd.String("", "backend", &argparse.Options{Default: "nexus", Help: "Repository backend type"})
-	initRepoID := initCmd.String("", "repo-id", &argparse.Options{Help: "Repository ID"})
-	initUser := initCmd.String("", "nexus-user", &argparse.Options{Help: "Nexus username"})
-	initStoreCreds := initCmd.Flag("", "store-credentials", &argparse.Options{Help: "Store credentials in OS keyring"})
-	initPass := initCmd.String("", "nexus-password", &argparse.Options{Help: "Nexus password (used with --store-credentials)"})
-
-	// Get command
-	getCmd := parser.NewCommand("get", "Install or update an application")
-	getProfile := getCmd.StringPositional(&argparse.Options{Required: true, Help: "Profile name"})
-	getVersion := getCmd.String("", "version", &argparse.Options{Help: "Specific version to install (v1 supports 'latest' only via channel manifest)"})
-	getDest := getCmd.String("", "dest", &argparse.Options{Help: "Override destination path"})
-	getOS := getCmd.String("", "os", &argparse.Options{Default: runtime.GOOS, Help: "Override operating system"})
-	getArch := getCmd.String("", "arch", &argparse.Options{Default: runtime.GOARCH, Help: "Override architecture"})
-	getConfigDir := getCmd.String("", "config-dir", &argparse.Options{Help: "Override configuration directory"})
-	getStateDir := getCmd.String("", "state-dir", &argparse.Options{Help: "Override state directory"})
-	getForce := getCmd.Flag("", "force", &argparse.Options{Help: "Force download and installation"})
-
-	// Status command
-	statusCmd := parser.NewCommand("status", "Show installation status")
-	statusProfile := statusCmd.StringPositional(&argparse.Options{Required: true, Help: "Profile name"})
-
-	// Push command
-	pushCmd := parser.NewCommand("push", "Publish a new release (publisher mode)")
-	pushConfig := pushCmd.String("", "config", &argparse.Options{Default: "./itrust-updater.project.env", Help: "Project configuration file"})
-	pushArtifactPath := pushCmd.String("", "artifact-path", &argparse.Options{Help: "Path to the artifact to push"})
-	pushRepoID := pushCmd.String("", "repo-id", &argparse.Options{Help: "Repository ID"})
-	pushAppID := pushCmd.String("", "app-id", &argparse.Options{Help: "Application ID"})
-	pushVersion := pushCmd.String("", "version", &argparse.Options{Help: "Version to push"})
-	pushRunHooks := pushCmd.Flag("", "run-hooks", &argparse.Options{Default: true, Help: "Run pre-push hooks"})
-	pushForce := pushCmd.Flag("", "force", &argparse.Options{Help: "Allow overwriting an existing release (dangerous)"})
-
-	// Manifest command
-	manCmd := parser.NewCommand("manifest", "Manifest utilities")
-	manVerify := manCmd.NewCommand("verify", "Verify a manifest file")
-	manVerifyFile := manVerify.String("", "file", &argparse.Options{Required: true, Help: "Manifest file to verify"})
-	manVerifyPubKey := manVerify.String("", "repo-pubkey", &argparse.Options{Required: true, Help: "Path to repository public key"})
-	manVerifyPubKeySha := manVerify.String("", "repo-pubkey-sha256", &argparse.Options{Help: "Expected SHA256 of public key"})
-
-	manSign := manCmd.NewCommand("sign", "Sign a payload")
-	manSignPayload := manSign.String("", "payload", &argparse.Options{Required: true, Help: "Payload JSON file"})
-	manSignOut := manSign.String("", "out", &argparse.Options{Required: true, Help: "Output signed manifest file"})
-	manSignKeyID := manSign.String("", "key-id", &argparse.Options{Required: true, Help: "Key ID for the signature"})
-
-	// Repo command
-	repoCmd := parser.NewCommand("repo", "Repository management")
-	repoInit := repoCmd.NewCommand("init", "Initialize a new repository")
-	repoInitID := repoInit.String("", "repo-id", &argparse.Options{Required: true, Help: "Repository ID"})
-	repoInitURL := repoInit.String("", "base-url", &argparse.Options{Required: true, Help: "Repository base URL"})
-	repoInitUser := repoInit.String("", "nexus-user", &argparse.Options{Required: true, Help: "Nexus username"})
-	repoInitPass := repoInit.String("", "nexus-password", &argparse.Options{Help: "Nexus password (prompted if missing)"})
-	repoInitPubKeyPath := repoInit.String("", "pubkey-path", &argparse.Options{Default: "repo/public-keys/ed25519.pub", Help: "Path in repository for public key"})
-
-	repoConfig := repoCmd.NewCommand("config", "Show repository configuration")
-	repoConfigID := repoConfig.String("", "repo-id", &argparse.Options{Required: true, Help: "Repository ID"})
-
-	repoExport := repoCmd.NewCommand("export", "Export repository configuration and secrets")
-	repoExportID := repoExport.String("", "repo-id", &argparse.Options{Required: true, Help: "Repository ID"})
-	repoExportIncludeSeed := repoExport.Flag("", "include-seed", &argparse.Options{Default: true, Help: "Include signing seed in export"})
-	repoExportIncludeNexus := repoExport.Flag("", "include-nexus", &argparse.Options{Default: false, Help: "Include Nexus credentials in export"})
-	repoExportOut := repoExport.String("", "out", &argparse.Options{Help: "Output file path (default: stdout)"})
-
-	repoImport := repoCmd.NewCommand("import", "Import repository configuration and secrets")
-	repoImportIn := repoImport.String("", "in", &argparse.Options{Help: "Input file path (default: stdin)"})
-	repoImportWriteConfig := repoImport.Flag("", "write-repo-config", &argparse.Options{Default: true, Help: "Write repo configuration file"})
-
-	// Version command
-	versionCmd := parser.NewCommand("version", "Show application version")
-
-	err := parser.Parse(os.Args)
-	if err != nil {
-		fmt.Print(parser.Usage(err))
-		os.Exit(1)
-	}
+	var cli CLI
+	kctx := kong.Parse(&cli,
+		kong.Name("itrust-updater"),
+		kong.Description("Secure application updater for artifacts"),
+		kong.UsageOnError(),
+		kong.Vars{
+			"default_os":   runtime.GOOS,
+			"default_arch": runtime.GOARCH,
+		},
+	)
 
 	logrus.SetFormatter(&logrus.TextFormatter{
 		FullTimestamp: true,
 	})
-	if *verbose {
+	if cli.Verbose {
 		logrus.SetLevel(logrus.DebugLevel)
 	}
 
 	ctx := context.Background()
 
-	switch {
-	case versionCmd.Happened():
+	switch kctx.Command() {
+	case "version":
 		handleVersion()
-	case initCmd.Happened():
-		handleInit(*initProfile, *initBaseURL, *initAppID, *initChannel, *initPubkeySha, *initDest, *initBackend, *initRepoID, *initUser, *initPass, *initStoreCreds, *nonInteractive)
-	case getCmd.Happened():
-		handleGet(ctx, *getProfile, *getVersion, *getDest, *getOS, *getArch, *getConfigDir, *getStateDir, *getForce, *nonInteractive, *useKeyring)
-	case statusCmd.Happened():
-		handleStatus(ctx, *statusProfile, *nonInteractive, *useKeyring)
-	case pushCmd.Happened():
-		handlePush(ctx, *pushConfig, *pushArtifactPath, *pushRepoID, *pushAppID, *pushVersion, *pushRunHooks, *pushForce, *nonInteractive, *useKeyring)
-	case manVerify.Happened():
-		handleManifestVerify(*manVerifyFile, *manVerifyPubKey, *manVerifyPubKeySha)
-	case manSign.Happened():
-		handleManifestSign(*manSignPayload, *manSignOut, *manSignKeyID, *useKeyring)
-	case repoInit.Happened():
-		handleRepoInit(ctx, *repoInitID, *repoInitURL, *repoInitUser, *repoInitPass, *repoInitPubKeyPath, *nonInteractive, *useKeyring)
-	case repoConfig.Happened():
-		handleRepoConfig(*repoConfigID)
-	case repoExport.Happened():
-		handleRepoExport(*repoExportID, *repoExportIncludeSeed, *repoExportIncludeNexus, *repoExportOut, *useKeyring)
-	case repoImport.Happened():
-		handleRepoImport(*repoImportIn, *repoImportWriteConfig, *useKeyring)
+	case "init <profile>":
+		handleInit(cli.Init.Profile, cli.Init.BaseURL, cli.Init.AppID, cli.Init.Channel, cli.Init.RepoPubkeySha256, cli.Init.Dest, cli.Init.Backend, cli.Init.RepoID, cli.Init.NexusUser, cli.Init.NexusPassword, cli.Init.StoreCredentials, cli.NonInteractive)
+	case "get <profile>":
+		handleGet(ctx, cli.Get.Profile, cli.Get.Version, cli.Get.Dest, cli.Get.Os, cli.Get.Arch, cli.Get.ConfigDir, cli.Get.StateDir, cli.Get.Force, cli.NonInteractive, cli.UseKeyring)
+	case "status <profile>":
+		handleStatus(ctx, cli.Status.Profile, cli.NonInteractive, cli.UseKeyring)
+	case "push":
+		handlePush(ctx, cli.Push.Config, cli.Push.ArtifactPath, cli.Push.RepoID, cli.Push.AppID, cli.Push.Version, cli.Push.RunHooks, cli.Push.Force, cli.NonInteractive, cli.UseKeyring)
+	case "manifest verify":
+		handleManifestVerify(cli.Manifest.Verify.File, cli.Manifest.Verify.RepoPubkey, cli.Manifest.Verify.RepoPubkeySha256)
+	case "manifest sign":
+		handleManifestSign(cli.Manifest.Sign.Payload, cli.Manifest.Sign.Out, cli.Manifest.Sign.KeyID, cli.UseKeyring)
+	case "repo init":
+		handleRepoInit(ctx, cli.Repo.Init.RepoID, cli.Repo.Init.BaseURL, cli.Repo.Init.NexusUser, cli.Repo.Init.NexusPassword, cli.Repo.Init.PubkeyPath, cli.NonInteractive, cli.UseKeyring)
+	case "repo config":
+		handleRepoConfig(cli.Repo.Config.RepoID)
+	case "repo export":
+		handleRepoExport(cli.Repo.Export.RepoID, cli.Repo.Export.IncludeSeed, cli.Repo.Export.IncludeNexus, cli.Repo.Export.Out, cli.UseKeyring)
+	case "repo import":
+		handleRepoImport(cli.Repo.Import.In, cli.Repo.Import.WriteRepoConfig, cli.UseKeyring)
+	default:
+		kctx.PrintUsage(false)
+		os.Exit(1)
 	}
 }
 
