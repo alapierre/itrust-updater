@@ -13,6 +13,9 @@ build:
 windows:
 	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)"
 
+push:
+	./itrust-updater push --artifact-path itrust-updater --repo-id 'updater' --app-id 'itrust-updater' --version $(VERSION)  --use-keyring
+
 clean:
 	rm -f itrust-updater
 
