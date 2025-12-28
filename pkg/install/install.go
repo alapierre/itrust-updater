@@ -133,7 +133,8 @@ func InstallArtifact(src io.Reader, dest string, expectedSha256 string, stateDir
 		return "", err
 	}
 
-	if runtime.GOOS != "windows" && artifactType != "jar" {
+	// Mark executable only for executable artifact types (on non-Windows).
+	if runtime.GOOS != "windows" && (artifactType == "binary" || artifactType == "exe") {
 		if err := os.Chmod(dest, 0755); err != nil {
 			return "", err
 		}
