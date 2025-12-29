@@ -217,7 +217,7 @@ func handlePush(ctx context.Context, configPath, artifactPathFlag, repoIDFlag, a
 	}
 
 	// 2. Upload artifact
-	fmt.Printf("Uploading artifact to %s...\n", remoteArtifactPath)
+	fmt.Printf("Uploading artifact to %s\n", remoteArtifactPath)
 	logger.Infof("Uploading artifact to %s", remoteArtifactPath)
 	openArtifact := func() (io.ReadCloser, error) {
 		return os.Open(artifactPath)
