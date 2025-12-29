@@ -1,3 +1,6 @@
+[![Sonarcloud Status](https://sonarcloud.io/api/project_badges/measure?project=alapierre_itrust-updater&metric=alert_status)](https://sonarcloud.io/dashboard?id=alapierre_itrust-updater)
+[![Build](https://github.com/alapierre/itrust-updater/actions/workflows/build.yml/badge.svg)](https://github.com/alapierre/itrust-updater/actions/workflows/build.yml)
+
 # itrust-updater
 
 Secure application updater for artifacts. Supports Ed25519 manifest signing, SHA256 artifact verification, and multiple repository management.
