@@ -33,6 +33,7 @@ func Parse(r io.Reader) (Config, error) {
 }
 
 func LoadFile(path string) (Config, error) {
+	logger.Debugf("Loading config from %s", path)
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {

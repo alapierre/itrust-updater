@@ -9,11 +9,8 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/alapierre/itrust-updater/pkg/logging"
 	"github.com/alapierre/itrust-updater/pkg/sign"
 )
-
-var logger = logging.Component("pkg/install")
 
 type State struct {
 	Profile          string    `json:"profile"`

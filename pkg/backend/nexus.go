@@ -2,6 +2,7 @@ package backend
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -91,7 +92,8 @@ func (n *NexusBackend) executeWithRetry(ctx context.Context, method, url string,
 }
 
 func isRetryableError(err error) bool {
-	if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
 		return true
 	}
 	if strings.Contains(err.Error(), "connection refused") ||

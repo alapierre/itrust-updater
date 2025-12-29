@@ -10,7 +10,6 @@ import (
 	"github.com/alapierre/itrust-updater/internal/support"
 	"github.com/alapierre/itrust-updater/pkg/backend"
 	"github.com/alapierre/itrust-updater/pkg/install"
-	"github.com/alapierre/itrust-updater/pkg/repo"
 	"github.com/alapierre/itrust-updater/pkg/secrets"
 	"github.com/zalando/go-keyring"
 )
@@ -35,26 +34,9 @@ func handleGet(ctx context.Context, profile, version, destOverride, goos, goarch
 	logger.Infof("Starting get for profile %s, version %s", profile, version)
 	logger.Debugf("Config dir: %s, state dir: %s", configDir, stateDir)
 
-	cfg := support.LoadMergedConfig(configDir, profile, logger)
+	cfg := support.LoadConfigWithRepoOverlay(configDir, profile)
 
 	repoID := cfg.Get("ITRUST_REPO_ID", "")
-	if repoID != "" {
-		logger.Debugf("Loading repo config for %s", repoID)
-		rc, err := repo.LoadRepoConfig(configDir, repoID)
-		if err == nil {
-			// Merge repo config if not already set
-			if cfg.Get("ITRUST_BASE_URL", "") == "" {
-				cfg["ITRUST_BASE_URL"] = rc.BaseURL
-			}
-			if cfg.Get("ITRUST_REPO_PUBKEY_SHA256", "") == "" {
-				cfg["ITRUST_REPO_PUBKEY_SHA256"] = rc.PubkeySha256
-			}
-			if cfg.Get("ITRUST_REPO_PUBKEY_PATH", "") == "" {
-				cfg["ITRUST_REPO_PUBKEY_PATH"] = rc.PubkeyPath
-			}
-		}
-	}
-
 	baseURL := cfg.Get("ITRUST_BASE_URL", "")
 	appId := cfg.Get("ITRUST_APP_ID", "")
 	channel := cfg.Get("ITRUST_CHANNEL", "stable")

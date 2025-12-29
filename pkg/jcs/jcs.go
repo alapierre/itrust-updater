@@ -29,7 +29,7 @@ func canonicalize(val interface{}) ([]byte, error) {
 		// RFC 8785: numbers should be formatted in a specific way.
 		// For simple use cases, json.Marshal on float64 is close,
 		// but JCS has strict rules about exponential notation etc.
-		// However, Go's default json.Marshal for float64 is usually sufficient for non-extreme numbers.
+		// However, Go's default json.Marshal for float64 is usually enough for non-extreme numbers.
 		return json.Marshal(v)
 	case string:
 		return json.Marshal(v)

@@ -14,10 +14,6 @@ func Component(name string) *logrus.Entry {
 	return logrus.WithField("component", name)
 }
 
-func App(name string) *logrus.Entry {
-	return Component(name)
-}
-
 // SetupLogging konfiguruje logrus do logowania na stdout LUB do pliku z rotacją.
 func SetupLogging(verbose bool, logFile string) {
 	logrus.SetFormatter(&logrus.TextFormatter{
@@ -27,7 +23,11 @@ func SetupLogging(verbose bool, logFile string) {
 	if verbose {
 		logrus.SetLevel(logrus.DebugLevel)
 	} else {
-		logrus.SetLevel(logrus.InfoLevel)
+		if logFile != "" {
+			logrus.SetLevel(logrus.InfoLevel)
+		} else {
+			logrus.SetLevel(logrus.WarnLevel)
+		}
 	}
 
 	if logFile != "" {
@@ -46,7 +46,7 @@ func SetupLogging(verbose bool, logFile string) {
 		}
 		logrus.SetOutput(lumberjackLogger)
 	} else {
-		logrus.SetOutput(os.Stdout)
+		logrus.SetOutput(os.Stderr)
 	}
 }
 
