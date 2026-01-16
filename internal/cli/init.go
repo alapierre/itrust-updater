@@ -47,7 +47,8 @@ func handleInit(profile, baseURL, appId, channel, pubkeySha, dest, backendType, 
 
 	if storeCreds {
 		if repoID == "" {
-			return fmt.Errorf("--repo-id is required when using --store-credentials")
+			fmt.Printf("Using profile name %s as repository ID\n", profile)
+			repoID = profile
 		}
 		pass := password
 		if pass == "" && !nonInteractive {

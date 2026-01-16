@@ -105,6 +105,8 @@ Supports `.env` style configuration files and environment variables.
 
 `itrust-updater push` is designed for CI/CD environments. It can run without local config files if all required data is provided via environment variables or flags.
 
+### GitHub Actions
+
 ```bash
 # Example GitHub Actions step
 env:
@@ -114,3 +116,31 @@ env:
   ITRUST_REPO_SIGNING_ED25519_SEED_B64: ${{ secrets.SIGNING_SEED }}
 run: itrust-updater push --non-interactive --app-id my-app --version 1.0.0 --artifact-path ./build/app
 ```
+
+### Bitbucket Pipelines
+
+https://bitbucket.org/itrust-dev/itrust-updater-pipe
+
+````yaml
+pipelines:
+  default:
+    - step: 
+        name: Build app
+        script:
+          - (cd cmd/my-app && make build)
+        artifacts:
+          - cmd/my-app
+    - step:
+        name: Deploy artefact to Nexus
+        script:
+          - CURRENT_VERSION=$(git tag -l "v*" | sort -V | tail -n 1)
+          - pipe: docker://lapierre/itrust-updater-pipe:1.2.2
+            variables:
+              ITRUST_BASE_URL: "${ITRUST_BASE_URL}"
+              ITRUST_VERSION: "${CURRENT_VERSION}"
+              ITRUST_APP_ID: "${ITRUST_APP_ID}"
+              ITRUST_ARTIFACT_PATH: "cmd/my-app"
+              ITRUST_REPO_SIGNING_ED25519_SEED_B64: "${ITRUST_REPO_SIGNING_ED25519_SEED_B64}"
+              ITRUST_NEXUS_USERNAME: ${ITRUST_NEXUS_USERNAME}
+              ITRUST_NEXUS_PASSWORD: "${ITRUST_NEXUS_PASSWORD}"
+````

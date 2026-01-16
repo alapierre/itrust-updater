@@ -10,6 +10,9 @@ LDFLAGS = -w -s -X 'github.com/alapierre/itrust-updater/version.Version=$(VERSIO
 build:
 	CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -a -installsuffix cgo .
 
+install:
+	go install -ldflags="$(LDFLAGS)"
+
 windows:
 	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)"
 
