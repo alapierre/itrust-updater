@@ -3,7 +3,14 @@
 
 # itrust-updater
 
-Secure application updater for artifacts. Supports Ed25519 manifest signing, SHA256 artifact verification, and multiple repository management.
+Secure application updater for binary artifacts. Supports Ed25519 manifest signing, SHA256 artifact verification, and multiple repository management.
+
+`itrust-updater` was created to solve a recurring problem of securely delivering binary application artifacts to end users and customers.
+Many projects need to distribute executables such as Go-based binaries (.exe) or Java applications (.jar) across multiple platforms, primarily Windows and Linux, in a way that is both secure and easy to operate.
+
+The tool focuses on secure artifact distribution by ensuring file integrity and authenticity — verifying that an artifact has not been tampered with and that it originates from a trusted publisher. At the same time, it aims to remain simple to use for both publishers and clients, without requiring complex infrastructure or manual steps.
+
+itrust-updater is designed to integrate naturally with CI/CD pipelines, enabling automated publishing, updating, and verification of artifacts, while providing a consistent update mechanism for end users across platforms.
 
 ## Key Concepts
 
