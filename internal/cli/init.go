@@ -51,12 +51,10 @@ func handleInit(profile, baseURL, appId, channel, pubkeySha, dest, backendType, 
 			repoID = profile
 		}
 		pass := password
-		if pass == "" && !nonInteractive {
-			var err error
-			pass, err = support.ReadPassword(fmt.Sprintf("Enter password for %s: ", user))
-			if err != nil {
-				return fmt.Errorf("failed to read password: %w", err)
-			}
+		var err error
+		pass, err = promptForPassword(user, pass, nonInteractive)
+		if err != nil {
+			return err
 		}
 		if pass == "" {
 			return fmt.Errorf("password is required for --store-credentials (provide via --nexus-password or interactive prompt)")

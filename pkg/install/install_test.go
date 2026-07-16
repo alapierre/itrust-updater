@@ -8,12 +8,20 @@ import (
 	"time"
 )
 
-func TestSaveLoadState(t *testing.T) {
+func createTempDir(t *testing.T) string {
+	t.Helper()
 	tmpDir, err := os.MkdirTemp("", "itrust-test-*")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(tmpDir)
+	t.Cleanup(func() {
+		_ = os.RemoveAll(tmpDir)
+	})
+	return tmpDir
+}
+
+func TestSaveLoadState(t *testing.T) {
+	tmpDir := createTempDir(t)
 
 	state := &State{
 		Profile:          "test-profile",
@@ -27,7 +35,7 @@ func TestSaveLoadState(t *testing.T) {
 		Arch:             "amd64",
 	}
 
-	err = SaveState(tmpDir, "test-profile", state)
+	err := SaveState(tmpDir, "test-profile", state)
 	if err != nil {
 		t.Fatalf("SaveState failed: %v", err)
 	}
@@ -55,11 +63,7 @@ func TestSaveLoadState(t *testing.T) {
 }
 
 func TestInstallArtifact_CreateDir(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "itrust-test-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
+	tmpDir := createTempDir(t)
 
 	stateDir := filepath.Join(tmpDir, "state")
 	dest := filepath.Join(tmpDir, "non-existent-dir", "app.bin")
@@ -81,18 +85,14 @@ func TestInstallArtifact_CreateDir(t *testing.T) {
 }
 
 func TestInstallArtifact_DmgPermissions(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "itrust-test-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
+	tmpDir := createTempDir(t)
 
 	stateDir := filepath.Join(tmpDir, "state")
 	dest := filepath.Join(tmpDir, "app.dmg")
 	src := strings.NewReader("dmg content")
 	expectedSha := "20c238233f476d55b080b3352d404fed558b6174f8047f3854599898c8c26e95" // sha256 of "dmg content"
 
-	_, err = InstallArtifact(src, dest, expectedSha, stateDir, "test", "dmg")
+	_, err := InstallArtifact(src, dest, expectedSha, stateDir, "test", "dmg")
 	if err != nil {
 		t.Fatalf("InstallArtifact failed: %v", err)
 	}

@@ -10,8 +10,6 @@ import (
 	"github.com/alapierre/itrust-updater/internal/support"
 	"github.com/alapierre/itrust-updater/pkg/backend"
 	"github.com/alapierre/itrust-updater/pkg/install"
-	"github.com/alapierre/itrust-updater/pkg/secrets"
-	"github.com/zalando/go-keyring"
 )
 
 type GetCmd struct {
@@ -55,34 +53,12 @@ func handleGet(ctx context.Context, profile, version, destOverride, goos, goarch
 
 	username := cfg.Get("ITRUST_NEXUS_USERNAME", "")
 	password := os.Getenv("ITRUST_NEXUS_PASSWORD")
+	username, password = loadNexusCredentialsFromKeyring(username, password, repoID, useKeyring)
 
-	if password == "" && useKeyring && repoID != "" {
-		logger.Debug("Attempting to get credentials from keyring for repo")
-		ss := &secrets.KeyringSecretStore{}
-		if username == "" {
-			username, _ = ss.Get("itrust-updater", "nexus:"+repoID+":username")
-		}
-		password, _ = ss.Get("itrust-updater", "nexus:"+repoID+":password")
-	}
-
-	// Backward compatibility for non-multi-repo keyring
-	if password == "" && useKeyring && username != "" {
-		logger.Debug("Attempting to get credentials from keyring (fallback)")
-		password, _ = keyring.Get("itrust-updater", username)
-	}
-
-	if password == "" && !nonInteractive {
-		if username == "" {
-			fmt.Print("Enter Nexus username: ")
-			fmt.Scanln(&username)
-		}
-		if username != "" {
-			var err error
-			password, err = support.ReadPassword(fmt.Sprintf("Enter Nexus password for %s: ", username))
-			if err != nil {
-				return fmt.Errorf("failed to read password: %w", err)
-			}
-		}
+	var err error
+	username, password, err = promptForNexusCredentials(username, password, nonInteractive)
+	if err != nil {
+		return err
 	}
 
 	if password == "" && username != "" && nonInteractive {

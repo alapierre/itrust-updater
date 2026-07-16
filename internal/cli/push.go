@@ -96,26 +96,11 @@ func handlePush(ctx context.Context, configPath, artifactPathFlag, repoIDFlag, a
 	// Secrety
 	username := cfg.Get("ITRUST_NEXUS_USERNAME", os.Getenv("ITRUST_NEXUS_USERNAME"))
 	password := os.Getenv("ITRUST_NEXUS_PASSWORD")
+	username, password = loadNexusCredentialsFromKeyring(username, password, repoID, useKeyring)
 
-	if password == "" && useKeyring && repoID != "" {
-		logger.Debug("Attempting to get credentials from keyring")
-		ss := &secrets.KeyringSecretStore{}
-		if username == "" {
-			username, _ = ss.Get("itrust-updater", "nexus:"+repoID+":username")
-		}
-		password, _ = ss.Get("itrust-updater", "nexus:"+repoID+":password")
-	}
-
-	if password == "" && useKeyring && username != "" {
-		logger.Debug("Attempting to get credentials from keyring (fallback)")
-		password, _ = keyring.Get("itrust-updater", username)
-	}
-	if password == "" && !nonInteractive {
-		var err error
-		password, err = support.ReadPassword(fmt.Sprintf("Enter password for %s: ", username))
-		if err != nil {
-			return fmt.Errorf("failed to read password: %w", err)
-		}
+	password, err = promptForPassword(username, password, nonInteractive)
+	if err != nil {
+		return err
 	}
 
 	seed := cfg.Get("ITRUST_REPO_SIGNING_ED25519_SEED_B64", os.Getenv("ITRUST_REPO_SIGNING_ED25519_SEED_B64"))

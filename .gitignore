@@ -5,3 +5,4 @@
 /cmd/itrust-updater/dist/itrust-updater.exe
 # Added by goreleaser init:
 dist/
+/.junie/

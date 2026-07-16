@@ -66,12 +66,10 @@ func (c *RepoImportCmd) Run(g *Globals) error {
 
 func handleRepoInit(ctx context.Context, repoID, baseURL, user, pass, pubkeyPath string, nonInteractive, useKeyring bool) error {
 	logger.Infof("Initializing repository %s at %s", repoID, baseURL)
-	if pass == "" && !nonInteractive {
-		var err error
-		pass, err = support.ReadPassword(fmt.Sprintf("Enter password for %s: ", user))
-		if err != nil {
-			return fmt.Errorf("failed to read password: %w", err)
-		}
+	var err error
+	pass, err = promptForPassword(user, pass, nonInteractive)
+	if err != nil {
+		return err
 	}
 	if pass == "" && !nonInteractive {
 		return fmt.Errorf("password is required")
