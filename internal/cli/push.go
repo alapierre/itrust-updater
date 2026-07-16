@@ -173,6 +173,9 @@ func handlePush(ctx context.Context, configPath, artifactPathFlag, repoIDFlag, a
 		artifactType = "msi"
 	case ".exe":
 		artifactType = "exe"
+	case ".dmg":
+		artifactType = "dmg"
+		goos = "darwin"
 	}
 
 	remoteArtifactPath := fmt.Sprintf("apps/%s/releases/v%s/%s/%s/%s_%s_%s_%s%s", appId, version, goos, goarch, appId, version, goos, goarch, ext)

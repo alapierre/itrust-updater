@@ -79,3 +79,31 @@ func TestInstallArtifact_CreateDir(t *testing.T) {
 		t.Errorf("Destination file not created: %v", err)
 	}
 }
+
+func TestInstallArtifact_DmgPermissions(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "itrust-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	stateDir := filepath.Join(tmpDir, "state")
+	dest := filepath.Join(tmpDir, "app.dmg")
+	src := strings.NewReader("dmg content")
+	expectedSha := "20c238233f476d55b080b3352d404fed558b6174f8047f3854599898c8c26e95" // sha256 of "dmg content"
+
+	_, err = InstallArtifact(src, dest, expectedSha, stateDir, "test", "dmg")
+	if err != nil {
+		t.Fatalf("InstallArtifact failed: %v", err)
+	}
+
+	fi, err := os.Stat(dest)
+	if err != nil {
+		t.Fatalf("Stat failed: %v", err)
+	}
+
+	mode := fi.Mode()
+	if mode&0111 != 0 {
+		t.Errorf("Expected no executable bits for dmg, got %v", mode)
+	}
+}
