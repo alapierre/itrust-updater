@@ -26,14 +26,14 @@ jobs:
         run: go test -v -coverprofile=coverage.out ./...
 
       - name: GoReleaser Check
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 #v6
         with:
           distribution: goreleaser
           version: "~> v2"
           args: check
 
       - name: Build Snapshot
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 #v6
         with:
           distribution: goreleaser
           version: "~> v2"
