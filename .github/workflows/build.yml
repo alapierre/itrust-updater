@@ -16,7 +16,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version-file: go.mod
+          cache: true
 
       - name: Install dependencies
         run: go mod download
@@ -24,8 +25,19 @@ jobs:
       - name: Run tests
         run: go test -v -coverprofile=coverage.out ./...
 
-      - name: Build
-        run: go build -v -o itrust-updater ./cmd/itrust-updater
+      - name: GoReleaser Check
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: check
+
+      - name: Build Snapshot
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: build --snapshot --clean
 
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v6
