@@ -17,8 +17,9 @@ func FetchAndVerifyManifest(ctx context.Context, b backend.Backend, appId, chann
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get repository public key: %v", err)
 	}
+	defer pubKeyReader.Close()
+
 	pubKey, err := io.ReadAll(pubKeyReader)
-	pubKeyReader.Close()
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read public key: %v", err)
 	}
@@ -37,12 +38,12 @@ func FetchAndVerifyManifest(ctx context.Context, b backend.Backend, appId, chann
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get manifest: %v", err)
 	}
+	defer manifestReader.Close()
+
 	var m manifest.Manifest
 	if err := json.NewDecoder(manifestReader).Decode(&m); err != nil {
-		manifestReader.Close()
 		return nil, nil, fmt.Errorf("failed to decode manifest: %v", err)
 	}
-	manifestReader.Close()
 
 	if err := m.Verify(pubKey); err != nil {
 		return nil, nil, fmt.Errorf("manifest signature verification failed: %v", err)

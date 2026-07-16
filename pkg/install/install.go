@@ -93,8 +93,13 @@ func InstallArtifact(src io.Reader, dest string, expectedSha256 string, stateDir
 	if err != nil {
 		return "", err
 	}
-	defer os.Remove(tempFile.Name())
-	defer tempFile.Close()
+	tempName := tempFile.Name()
+	defer func() {
+		if tempFile != nil {
+			_ = tempFile.Close()
+			_ = os.Remove(tempName)
+		}
+	}()
 
 	hasher := sign.NewHasher() // need to add this to pkg/sign
 	multiWriter := io.MultiWriter(tempFile, hasher)
@@ -111,6 +116,7 @@ func InstallArtifact(src io.Reader, dest string, expectedSha256 string, stateDir
 	if err := tempFile.Close(); err != nil {
 		return "", err
 	}
+	tempFile = nil
 
 	// Backup
 	if _, err := os.Stat(dest); err == nil {
@@ -125,8 +131,7 @@ func InstallArtifact(src io.Reader, dest string, expectedSha256 string, stateDir
 	}
 
 	// Atomic replace
-	if err := os.Rename(tempFile.Name(), dest); err != nil {
-		// On windows rename might fail if file is busy
+	if err := os.Rename(tempName, dest); err != nil {
 		return "", err
 	}
 
@@ -151,6 +156,8 @@ func CopyFile(src, dst string) error {
 		return err
 	}
 	defer out.Close()
-	_, err = io.Copy(out, in)
-	return err
+	if _, err = io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Close()
 }

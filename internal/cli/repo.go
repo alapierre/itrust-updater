@@ -112,9 +112,15 @@ func handleRepoInit(ctx context.Context, repoID, baseURL, user, pass, pubkeyPath
 	if useKeyring {
 		logger.Debug("Storing repository secrets in keyring")
 		ss := &secrets.KeyringSecretStore{}
-		_ = ss.Set("itrust-updater", "nexus:"+repoID+":username", user)
-		_ = ss.Set("itrust-updater", "nexus:"+repoID+":password", pass)
-		_ = ss.Set("itrust-updater", "signing:"+repoID+":ed25519-seed-b64", seedB64)
+		if err := ss.Set("itrust-updater", "nexus:"+repoID+":username", user); err != nil {
+			logger.Warnf("Failed to store Nexus username in keyring: %v", err)
+		}
+		if err := ss.Set("itrust-updater", "nexus:"+repoID+":password", pass); err != nil {
+			logger.Warnf("Failed to store Nexus password in keyring: %v", err)
+		}
+		if err := ss.Set("itrust-updater", "signing:"+repoID+":ed25519-seed-b64", seedB64); err != nil {
+			logger.Warnf("Failed to store signing seed in keyring: %v", err)
+		}
 		fmt.Println("Secrets stored in keyring.")
 	} else {
 		fmt.Printf("\nIMPORTANT: Store this signing seed securely (it will NOT be saved to disk):\n%s\n", seedB64)
@@ -207,7 +213,10 @@ func handleRepoImport(inPath string, writeConfig, useKeyring bool) error {
 		return fmt.Errorf("failed to read input: %w", err)
 	}
 
-	cfg, _ := config.Parse(strings.NewReader(string(data)))
+	cfg, err := config.Parse(strings.NewReader(string(data)))
+	if err != nil {
+		return fmt.Errorf("failed to parse config: %w", err)
+	}
 	repoID := cfg.Get("ITRUST_REPO_ID", "")
 	if repoID == "" {
 		return fmt.Errorf("input does not contain ITRUST_REPO_ID")
@@ -233,15 +242,22 @@ func handleRepoImport(inPath string, writeConfig, useKeyring bool) error {
 		ss := &secrets.KeyringSecretStore{}
 		seed := cfg.Get("ITRUST_REPO_SIGNING_ED25519_SEED_B64", "")
 		if seed != "" {
-			_ = ss.Set("itrust-updater", "signing:"+repoID+":ed25519-seed-b64", seed)
-			fmt.Println("Signing seed imported to keyring.")
+			if err := ss.Set("itrust-updater", "signing:"+repoID+":ed25519-seed-b64", seed); err != nil {
+				logger.Warnf("Failed to import signing seed to keyring: %v", err)
+			} else {
+				fmt.Println("Signing seed imported to keyring.")
+			}
 		}
 		user := cfg.Get("ITRUST_NEXUS_USERNAME", "")
 		pass := cfg.Get("ITRUST_NEXUS_PASSWORD", "")
 		if user != "" {
-			_ = ss.Set("itrust-updater", "nexus:"+repoID+":username", user)
+			if err := ss.Set("itrust-updater", "nexus:"+repoID+":username", user); err != nil {
+				logger.Warnf("Failed to import Nexus username to keyring: %v", err)
+			}
 			if pass != "" {
-				_ = ss.Set("itrust-updater", "nexus:"+repoID+":password", pass)
+				if err := ss.Set("itrust-updater", "nexus:"+repoID+":password", pass); err != nil {
+					logger.Warnf("Failed to import Nexus password to keyring: %v", err)
+				}
 			}
 			fmt.Println("Nexus credentials imported to keyring.")
 		}

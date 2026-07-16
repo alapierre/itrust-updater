@@ -282,7 +282,10 @@ func handlePush(ctx context.Context, configPath, artifactPathFlag, repoIDFlag, a
 		return fmt.Errorf("failed to sign manifest: %w", err)
 	}
 
-	mJson, _ := json.MarshalIndent(m, "", "  ")
+	mJson, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal manifest: %w", err)
+	}
 	openManifest := func() (io.ReadCloser, error) {
 		return io.NopCloser(strings.NewReader(string(mJson))), nil
 	}
