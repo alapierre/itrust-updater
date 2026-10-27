@@ -5,6 +5,10 @@ on:
       - master
   pull_request:
     types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
