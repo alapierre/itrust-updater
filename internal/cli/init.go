@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/alapierre/itrust-updater/internal/support"
+	"github.com/alapierre/itrust-updater/pkg/config"
 	"github.com/alapierre/itrust-updater/pkg/secrets"
 )
 
@@ -28,6 +29,14 @@ func (c *InitCmd) Run(g *Globals) error {
 }
 
 func handleInit(profile, baseURL, appId, channel, pubkeySha, dest, backendType, repoID, user, password string, storeCreds, nonInteractive bool) error {
+	if err := config.ValidateIdentifier("profile", profile); err != nil {
+		return err
+	}
+	if repoID != "" {
+		if err := config.ValidateIdentifier("repository ID", repoID); err != nil {
+			return err
+		}
+	}
 	configDir := support.GetDefaultConfigDir()
 	profilePath := filepath.Join(configDir, "apps", profile+".env")
 	logger.Infof("Initializing profile %s at %s", profile, profilePath)

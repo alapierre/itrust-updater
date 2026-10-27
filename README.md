@@ -29,6 +29,9 @@ Manage repository configurations and secrets.
 - **`repo init --repo-id <id> --base-url <url> --nexus-user <user>`**:
   Initializes a new repository. Generates a new Ed25519 signing key, uploads the public key to the repo, and saves local configuration.
   Use `--use-keyring` to store the generated seed and Nexus credentials securely.
+  With keyring enabled, the seed and credentials are saved and read back before the public key is published. A storage or verification failure aborts initialization. Failed uploads or configuration writes leave the seed in the keyring; retrying reuses it and can finish initialization if the same public key was already uploaded. Initialization refuses to replace a different remote public key or an existing local repository configuration.
+  Without keyring, the seed is printed **before** publication; capture it securely, including if a later step fails. A failed output prevents publication. Local initializations for the same repository ID are serialized; after a crash, an error identifies the `.init-lock` directory to remove only when no initialization is running.
+  Repository credentials must allow checking whether the public key exists and reading it when present, in addition to uploading a new key.
 - **`repo config --repo-id <id>`**:
   Displays a configuration snippet for the given repository (URL, public key path, and fingerprint).
 - **`repo export --repo-id <id> [--include-seed] [--include-nexus] [--out <file>]`**:
@@ -84,6 +87,12 @@ itrust-updater init my-app --repo-id main-repo --app-id my-app --dest ./bin/my-a
 ## Configuration
 
 Supports `.env` style configuration files and environment variables.
+
+Repository IDs and profile names must begin with an ASCII letter or digit; subsequent characters may be ASCII letters, digits, `.`, `_`, or `-`. Trailing dots and Windows device names such as `CON` or `LPT1` are rejected on every platform. Separators, absolute paths, spaces, and control characters are not accepted, and invalid identifiers are rejected rather than normalized. Existing configurations using other names need to be renamed consistently before use.
+
+Repository imports validate the ID even when configuration-file writing is disabled. Repository configuration writes are atomic and confined to the `repos` directory; that directory must not be a symlink. Import errors in configuration or secret storage are reported as failures, not success with warnings. A partial import may have already saved its configuration or some secrets; its source bundle remains available for retry.
+
+For Go integrations, `repo.GetRepoConfigPath` now returns `(string, error)` so invalid repository IDs can be reported before file access.
 
 **Priority**: CLI args > ENV (`ITRUST_*`) > profile.env > repo.env > project.env > defaults.
 

@@ -1,7 +1,5 @@
 package secrets
 
-import "fmt"
-
 type InMemorySecretStore struct {
 	secrets map[string]string
 }
@@ -15,7 +13,7 @@ func NewInMemorySecretStore() *InMemorySecretStore {
 func (i *InMemorySecretStore) Get(service, key string) (string, error) {
 	val, ok := i.secrets[service+":"+key]
 	if !ok {
-		return "", fmt.Errorf("secret not found")
+		return "", ErrNotFound
 	}
 	return val, nil
 }

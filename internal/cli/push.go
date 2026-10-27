@@ -54,10 +54,11 @@ func handlePush(ctx context.Context, configPath, artifactPathFlag, repoIDFlag, a
 		configDir := support.GetDefaultConfigDir()
 		logger.Debugf("Loading repo config for %s from %s", repoID, configDir)
 		rc, err := repo.LoadRepoConfig(configDir, repoID)
-		if err == nil {
-			if cfg.Get("ITRUST_BASE_URL", "") == "" {
-				cfg["ITRUST_BASE_URL"] = rc.BaseURL
-			}
+		if err != nil {
+			return fmt.Errorf("failed to load repository config: %w", err)
+		}
+		if cfg.Get("ITRUST_BASE_URL", "") == "" {
+			cfg["ITRUST_BASE_URL"] = rc.BaseURL
 		}
 	}
 
