@@ -88,6 +88,15 @@ func handleStatus(ctx context.Context, profile string, nonInteractive, useKeyrin
 		logger.Errorf("Failed to fetch/verify manifest: %v", err)
 		return nil
 	}
+	history, err := install.LoadManifestHistory(stateDir, profile)
+	if err == nil && history != nil {
+		// Status checks existing protection but does not advance it.
+		_, err = history.Accept(m, expectedPubkeySha, false)
+	}
+	if err != nil {
+		fmt.Printf("Latest Version:    unverified (%v)\n", err)
+		return nil
+	}
 
 	fmt.Printf("Latest Version:    %s\n", m.Payload.Latest.Version)
 	if st != nil {

@@ -24,19 +24,39 @@ type NexusBackend struct {
 }
 
 func NewNexusBackend(baseURL, username, password string) *NexusBackend {
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 60 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+
 	return &NexusBackend{
 		BaseURL:  strings.TrimSuffix(baseURL, "/"),
 		Username: username,
 		Password: password,
 		Client: &http.Client{
-			Timeout: 30 * time.Second,
+			Transport: transport,
 		},
 	}
 }
 
 func (n *NexusBackend) executeWithRetry(ctx context.Context, method, url string, openBody func() (io.ReadCloser, error), contentType string) (*http.Response, error) {
 	expBackoff := backoff.NewExponentialBackOff()
-	expBackoff.MaxElapsedTime = 30 * time.Second
+	expBackoff.InitialInterval = 1 * time.Second
+	expBackoff.MaxInterval = 10 * time.Second
+	expBackoff.Multiplier = 2.0
+	expBackoff.MaxElapsedTime = 0 // Nie przerywamy na podstawie upływu czasu zegarowego; decyduje limit prób i ctx
+
+	bo := backoff.WithMaxRetries(expBackoff, 3)
+	bo = backoff.WithContext(bo, ctx)
 
 	var attempt int
 	var resp *http.Response
@@ -67,6 +87,9 @@ func (n *NexusBackend) executeWithRetry(ctx context.Context, method, url string,
 
 		resp, err = n.Client.Do(req)
 		if err != nil {
+			if ctx.Err() != nil {
+				return backoff.Permanent(ctx.Err())
+			}
 			if isRetryableError(err) {
 				logger.Debugf("Retrying %s %s, attempt %d, error: %v", method, url, attempt, err)
 				return err
@@ -83,7 +106,7 @@ func (n *NexusBackend) executeWithRetry(ctx context.Context, method, url string,
 		return nil
 	}
 
-	err := backoff.Retry(operation, backoff.WithContext(expBackoff, ctx))
+	err := backoff.Retry(operation, bo)
 	if err != nil {
 		return nil, err
 	}
@@ -92,13 +115,25 @@ func (n *NexusBackend) executeWithRetry(ctx context.Context, method, url string,
 }
 
 func isRetryableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
 		return true
 	}
-	if strings.Contains(err.Error(), "connection refused") ||
-		strings.Contains(err.Error(), "connection reset") ||
-		strings.Contains(err.Error(), "EOF") {
+	errStr := err.Error()
+	if strings.Contains(errStr, "connection refused") ||
+		strings.Contains(errStr, "connection reset") ||
+		strings.Contains(errStr, "broken pipe") ||
+		strings.Contains(errStr, "unexpected EOF") ||
+		strings.Contains(errStr, "EOF") ||
+		strings.Contains(errStr, "i/o timeout") ||
+		strings.Contains(errStr, "TLS handshake timeout") ||
+		strings.Contains(errStr, "temporary failure in name resolution") {
 		return true
 	}
 	return false
