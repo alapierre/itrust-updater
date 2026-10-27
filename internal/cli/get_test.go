@@ -62,7 +62,7 @@ func newUpdateFixture(t *testing.T) *updateFixture {
 	for key, value := range map[string]string{
 		"ITRUST_BASE_URL": server.URL, "ITRUST_APP_ID": "app", "ITRUST_CHANNEL": "stable",
 		"ITRUST_DEST": f.dest, "ITRUST_REPO_PUBKEY_SHA256": f.pin, "ITRUST_BACKEND": "nexus",
-		"ITRUST_REPO_PUBKEY_PATH": "repo/public-keys/ed25519.pub", "ITRUST_REPO_ID": "",
+		"ITRUST_REPO_PUBKEY_PATH": "repo/public-keys/ed25519.pub", "ITRUST_REPO_ID": "repo",
 		"ITRUST_NEXUS_USERNAME": "", "ITRUST_NEXUS_PASSWORD": "",
 	} {
 		t.Setenv(key, value)
@@ -75,7 +75,7 @@ func (f *updateFixture) release(version string, revision int) *manifest.Manifest
 	body := []byte("version " + version)
 	artifact := manifest.Artifact{OS: "linux", Arch: "amd64", Type: "binary", URL: "artifacts/" + version, Size: int64(len(body)), Sha256: sign.SHA256(body)}
 	m, err := manifest.SignManifest(manifest.Payload{
-		SchemaVersion: 1, App: manifest.AppInfo{ID: "app"}, Channel: "stable",
+		SchemaVersion: 1, Repo: manifest.RepoInfo{ID: "repo"}, App: manifest.AppInfo{ID: "app"}, Channel: "stable",
 		GeneratedAt: time.Date(2026, 1, revision, 0, 0, 0, 0, time.UTC),
 		Latest:      manifest.Release{Version: version, Artifacts: []manifest.Artifact{artifact}},
 	}, f.seed, "test")
@@ -314,7 +314,7 @@ func TestGetFailsClosedWhenLegacyBaselineCannotBeVerified(t *testing.T) {
 }
 
 func TestGetAuthenticatesMetadataBeforeCheckpointing(t *testing.T) {
-	for _, scenario := range []string{"unsigned timestamp", "wrong app", "wrong channel", "wrong explicit version", "missing timestamp"} {
+	for _, scenario := range []string{"unsigned timestamp", "wrong app", "wrong repo", "missing repo", "wrong channel", "wrong explicit version", "missing version", "unsupported schema", "missing timestamp"} {
 		t.Run(scenario, func(t *testing.T) {
 			f := newUpdateFixture(t)
 			m := f.release("1.0.0", 1)
@@ -324,10 +324,18 @@ func TestGetAuthenticatesMetadataBeforeCheckpointing(t *testing.T) {
 				m.Payload.GeneratedAt = m.Payload.GeneratedAt.Add(time.Hour)
 			case "wrong app":
 				m.Payload.App.ID = "other-app"
+			case "wrong repo":
+				m.Payload.Repo.ID = "other-repo"
+			case "missing repo":
+				m.Payload.Repo.ID = ""
 			case "wrong channel":
 				m.Payload.Channel = "beta"
 			case "wrong explicit version":
 				version = "2.0.0"
+			case "missing version":
+				m.Payload.Latest.Version = ""
+			case "unsupported schema":
+				m.Payload.SchemaVersion = 2
 			case "missing timestamp":
 				m.Payload.GeneratedAt = time.Time{}
 			}
@@ -340,12 +348,32 @@ func TestGetAuthenticatesMetadataBeforeCheckpointing(t *testing.T) {
 			}
 			f.channel(m)
 			f.serveManifest("/apps/app/releases/v2.0.0/artifacts.json", m)
-			if err := f.get(version, false); err == nil {
-				t.Fatal("invalid metadata accepted")
+			for _, force := range []bool{false, true} {
+				if err := f.get(version, force); err == nil {
+					t.Fatalf("invalid metadata accepted with force=%v", force)
+				}
 			}
 			if h, err := install.LoadManifestHistory(f.stateDir, "profile"); err != nil || h != nil {
 				t.Fatalf("invalid metadata changed history: %v, %v", h, err)
 			}
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			if f.artifactRequests != 0 {
+				t.Fatal("artifact downloaded using invalid metadata")
+			}
 		})
 	}
+}
+
+func TestGetExplicitVersionFromOriginalReleaseChannel(t *testing.T) {
+	f := newUpdateFixture(t)
+	m := f.release("1.0.0", 1)
+	m.Payload.Channel = "beta"
+	m, err := manifest.SignManifest(m.Payload, f.seed, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.serveManifest("/apps/app/releases/v1.0.0/artifacts.json", m)
+	f.mustGet("1.0.0")
+	f.assertVersion("1.0.0")
 }

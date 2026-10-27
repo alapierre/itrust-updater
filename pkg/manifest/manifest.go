@@ -60,6 +60,16 @@ type Manifest struct {
 	Signature Signature `json:"signature"`
 }
 
+// Identity binds authenticated metadata to the requested repository and app.
+// Version selects a release independently of its original channel. Without a
+// version, Channel must match. RepoID is checked when configured by the caller.
+type Identity struct {
+	RepoID  string
+	AppID   string
+	Channel string
+	Version string
+}
+
 type ArtifactsList struct {
 	Version   string     `json:"version"`
 	Artifacts []Artifact `json:"artifacts"`
@@ -106,6 +116,36 @@ func (m *Manifest) Verify(pubKey []byte) error {
 		return fmt.Errorf("payload SHA256 mismatch")
 	}
 	return sign.Verify(canonical, m.Signature.Sig, pubKey)
+}
+
+// VerifyFor checks both authenticity and the context in which a manifest is used.
+func (m *Manifest) VerifyFor(pubKey []byte, expected Identity) error {
+	if err := m.Verify(pubKey); err != nil {
+		return fmt.Errorf("manifest signature verification failed: %w", err)
+	}
+	if m.Signature.Alg != "Ed25519" {
+		return fmt.Errorf("unsupported manifest signature algorithm: %q", m.Signature.Alg)
+	}
+	if m.Payload.SchemaVersion != 1 {
+		return fmt.Errorf("unsupported manifest schema version: %d", m.Payload.SchemaVersion)
+	}
+	if expected.RepoID != "" && m.Payload.Repo.ID != expected.RepoID {
+		return fmt.Errorf("manifest repo ID mismatch: expected %q, got %q", expected.RepoID, m.Payload.Repo.ID)
+	}
+	if expected.AppID == "" || m.Payload.App.ID != expected.AppID {
+		return fmt.Errorf("manifest app ID mismatch: expected %q, got %q", expected.AppID, m.Payload.App.ID)
+	}
+	if m.Payload.Latest.Version == "" {
+		return fmt.Errorf("manifest release version is missing")
+	}
+	if expected.Version != "" {
+		if m.Payload.Latest.Version != expected.Version {
+			return fmt.Errorf("manifest version mismatch: expected %q, got %q", expected.Version, m.Payload.Latest.Version)
+		}
+	} else if expected.Channel == "" || m.Payload.Channel != expected.Channel {
+		return fmt.Errorf("manifest channel mismatch: expected %q, got %q", expected.Channel, m.Payload.Channel)
+	}
+	return nil
 }
 
 func (m *Manifest) FindArtifact(os, arch string) (*Artifact, error) {
