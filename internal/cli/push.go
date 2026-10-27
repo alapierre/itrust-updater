@@ -115,6 +115,12 @@ func handlePush(ctx context.Context, configPath, artifactPathFlag, repoIDFlag, a
 	if seed == "" {
 		return fmt.Errorf("repository signing seed missing (ITRUST_REPO_SIGNING_ED25519_SEED_B64)")
 	}
+	// Trust the locally configured signing key, never a replacement key supplied
+	// by the repository whose existing entries we are about to authenticate.
+	pubKey, err := sign.SeedToPubKey(seed)
+	if err != nil {
+		return fmt.Errorf("invalid repository signing seed: %w", err)
+	}
 
 	// Hook
 	hook := cfg.Get("ITRUST_PREPUSH_HOOK", "")
@@ -169,6 +175,8 @@ func handlePush(ctx context.Context, configPath, artifactPathFlag, repoIDFlag, a
 	var b backend.Backend
 	if backendType == "nexus" {
 		b = backend.NewNexusBackend(baseURL, username, password)
+	} else {
+		return fmt.Errorf("unsupported backend: %s", backendType)
 	}
 
 	// 1.5 Check if release already exists
@@ -191,6 +199,10 @@ func handlePush(ctx context.Context, configPath, artifactPathFlag, repoIDFlag, a
 			return fmt.Errorf("failed to decode existing manifest: %w", err)
 		}
 		rc.Close()
+		expected := manifest.Identity{RepoID: repoID, AppID: appId, Version: version}
+		if err := m.VerifyFor(pubKey, expected); err != nil {
+			return fmt.Errorf("refusing to merge existing release manifest: %w", err)
+		}
 
 		existingArtifacts = m.Payload.Latest.Artifacts
 		for _, a := range existingArtifacts {

@@ -60,6 +60,7 @@ Manage repository configurations and secrets.
   Publishes a new release. Requires `itrust-updater.project.env` in the current directory or configuration via environment variables or CLI flags.
   CLI flags have the highest priority. Supports pre-push hooks (e.g., for binary signing).
   Artifacts within a version are immutable by default (protection per OS/Architecture). Use `--force` to overwrite an existing artifact for the same version and platform. Adding artifacts for new platforms to an existing version is allowed.
+  Before merging an existing release, `push` verifies its signature using the public key derived from the locally configured signing seed, and checks the application, version, and repository ID (when configured). Missing/invalid signatures or mismatched metadata abort publication before any upload, even with `--force`. A key downloaded from the repository is never trusted for this check. Existing releases signed with a different key require a separately trusted migration; `--force` does not bypass signature verification.
 
 ### Utilities
 
@@ -105,6 +106,7 @@ Supports `.env` style configuration files and environment variables.
 
 - **Mandatory Signing**: All manifests must be signed using Ed25519.
 - **Key Pinning**: Fingerprint of the repository public key is verified before any update.
+- **Manifest Identity**: `get` and `status` require the configured application ID and, when set, repository ID to match the signed payload. Channel requests (including `--version latest`) also require the configured channel. An explicit `--version <ver>` requires exactly that version; its original release channel may differ because release manifests are shared across channels. Publisher merges follow the same release identity checks. Unsupported schema versions and signature algorithms are rejected by these operations.
 - **Manifest Replay Protection**: `get` persists the newest verified manifest timestamp and payload hash separately from installed-version state, scoped to the profile, signing-key fingerprint, application, and channel. `status` checks these saved checkpoints without advancing them.
 - **Atomic Replace**: Artifacts are downloaded to a temporary file and renamed atomically.
 - **Masked Input**: Passwords are read from the terminal without echoing.

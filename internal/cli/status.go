@@ -9,6 +9,7 @@ import (
 	"github.com/alapierre/itrust-updater/internal/support"
 	"github.com/alapierre/itrust-updater/pkg/backend"
 	"github.com/alapierre/itrust-updater/pkg/install"
+	"github.com/alapierre/itrust-updater/pkg/manifest"
 )
 
 type StatusCmd struct {
@@ -82,7 +83,8 @@ func handleStatus(ctx context.Context, profile string, nonInteractive, useKeyrin
 	}
 
 	logger.Infof("Fetching manifest to check for updates")
-	m, _, err := support.FetchAndVerifyManifest(ctx, b, appId, channel, "", pubkeyPath, expectedPubkeySha)
+	expected := manifest.Identity{RepoID: repoID, AppID: appId, Channel: channel}
+	m, _, err := support.FetchAndVerifyManifest(ctx, b, expected, pubkeyPath, expectedPubkeySha)
 	if err != nil {
 		fmt.Printf("Latest Version:    unverified (%v)\n", err)
 		logger.Errorf("Failed to fetch/verify manifest: %v", err)

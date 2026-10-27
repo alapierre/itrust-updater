@@ -10,6 +10,7 @@ import (
 	"github.com/alapierre/itrust-updater/internal/support"
 	"github.com/alapierre/itrust-updater/pkg/backend"
 	"github.com/alapierre/itrust-updater/pkg/install"
+	"github.com/alapierre/itrust-updater/pkg/manifest"
 )
 
 type GetCmd struct {
@@ -97,7 +98,8 @@ func handleGet(ctx context.Context, profile, version, destOverride, goos, goarch
 		// Older updater versions did not save signed timestamps. Establish a
 		// baseline from the installed release, never from the channel being checked.
 		if st != nil && st.AppID == appId && st.InstalledVersion != "" {
-			baseline, _, err := support.FetchAndVerifyManifest(ctx, b, appId, st.Channel, st.InstalledVersion, pubkeyPath, expectedPubkeySha)
+			baselineIdentity := manifest.Identity{RepoID: repoID, AppID: appId, Channel: st.Channel, Version: st.InstalledVersion}
+			baseline, _, err := support.FetchAndVerifyManifest(ctx, b, baselineIdentity, pubkeyPath, expectedPubkeySha)
 			if err != nil {
 				return fmt.Errorf("cannot initialize replay protection from installed version %s: %w", st.InstalledVersion, err)
 			}
@@ -118,7 +120,8 @@ func handleGet(ctx context.Context, profile, version, destOverride, goos, goarch
 	}
 
 	logger.Infof("Fetching manifest for %s (channel: %s, version: %s)", appId, channel, version)
-	m, _, err := support.FetchAndVerifyManifest(ctx, b, appId, channel, version, pubkeyPath, expectedPubkeySha)
+	expected := manifest.Identity{RepoID: repoID, AppID: appId, Channel: channel, Version: version}
+	m, _, err := support.FetchAndVerifyManifest(ctx, b, expected, pubkeyPath, expectedPubkeySha)
 	if err != nil {
 		return fmt.Errorf("failed to fetch/verify manifest: %w", err)
 	}
