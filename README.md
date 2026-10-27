@@ -110,6 +110,7 @@ For Go integrations, `repo.GetRepoConfigPath` now returns `(string, error)` so i
 - `ITRUST_NEXUS_USERNAME` / `ITRUST_NEXUS_PASSWORD`: Nexus credentials.
 - `ITRUST_REPO_SIGNING_ED25519_SEED_B64`: Seed for signing manifests (32 bytes base64).
 - `ITRUST_REPO_PUBKEY_SHA256`: Expected SHA256 fingerprint of the repository public key.
+- `ITRUST_TRANSFER_IDLE_TIMEOUT`: Maximum time without HTTP transfer progress; a positive Go duration such as `30s` or `5m` (default: `2m`). Applies to `get`, `status`, `push`, and `repo init`. The latter reads this setting from the environment; other commands also accept it in their configuration files.
 
 ## Security Features
 
@@ -118,9 +119,13 @@ For Go integrations, `repo.GetRepoConfigPath` now returns `(string, error)` so i
 - **Manifest Identity**: `get` and `status` require the configured application ID and, when set, repository ID to match the signed payload. Channel requests (including `--version latest`) also require the configured channel. An explicit `--version <ver>` requires exactly that version; its original release channel may differ because release manifests are shared across channels. Publisher merges follow the same release identity checks. Unsupported schema versions and signature algorithms are rejected by these operations.
 - **Manifest Replay Protection**: `get` persists the newest verified manifest timestamp and payload hash separately from installed-version state, scoped to the profile, signing-key fingerprint, application, and channel. `status` checks these saved checkpoints without advancing them.
 - **Atomic Replace**: Artifacts are downloaded to a temporary file and renamed atomically.
+- **Bounded Downloads**: Remote manifests are limited to 1 MiB of JSON, including whitespace, and Ed25519 public keys must contain exactly 32 raw bytes. Artifacts must match both the signed `size` in bytes and SHA256. Downloads write at most the signed size to disk and read at most one extra byte to detect an oversized response. Failed downloads, backups, and replacements remove the temporary download file.
+- **Transfer Idle Timeout**: Stalled HTTP requests, uploads, and response bodies are cancelled. Transfers with regular progress may take longer than the idle timeout; existing connection and response-header timeouts still apply. Upload retries reopen the source file. A failed response body read aborts the current download without retrying a partially consumed stream.
 - **Masked Input**: Passwords are read from the terminal without echoing.
 - **JCS (RFC 8785)**: JSON Canonicalization Scheme is used for signing consistency.
 - **Keyring**: Securely stores secrets (passwords, signing seeds) using the OS keyring (opt-in via `--use-keyring` or `--store-credentials`).
+
+Existing manifests need an accurate artifact `size`; a missing size is treated as zero and cannot describe a nonempty artifact. `push` already fills this field and now checks the merged manifest's size before uploading anything. There is no new fixed artifact size cap in `get`: the limit comes from the verified manifest. For Go library consumers, the existing `install.InstallArtifact` signature is retained with an 8 GiB safety cap; use `install.InstallArtifactWithSize` to supply the expected size explicitly, including for larger files.
 
 ### Replay protection and existing installations
 

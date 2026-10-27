@@ -90,7 +90,23 @@ func SaveState(stateDir, profile string, state *State) error {
 	return nil
 }
 
+// DefaultMaxArtifactSize bounds the legacy API, which has no signed size argument.
+const DefaultMaxArtifactSize int64 = 8 << 30
+
+// InstallArtifact retains the original API with an 8 GiB safety limit.
+// Prefer InstallArtifactWithSize for downloads described by a signed manifest.
 func InstallArtifact(src io.Reader, dest string, expectedSha256 string, stateDir, profile string, artifactType string) (string, error) {
+	return installArtifact(src, dest, expectedSha256, stateDir, profile, artifactType, DefaultMaxArtifactSize, false)
+}
+
+func InstallArtifactWithSize(src io.Reader, dest string, expectedSha256 string, stateDir, profile string, artifactType string, expectedSize int64) (string, error) {
+	return installArtifact(src, dest, expectedSha256, stateDir, profile, artifactType, expectedSize, true)
+}
+
+func installArtifact(src io.Reader, dest string, expectedSha256 string, stateDir, profile string, artifactType string, size int64, exactSize bool) (string, error) {
+	if size < 0 {
+		return "", fmt.Errorf("invalid artifact size: %d", size)
+	}
 	if err := config.ValidateIdentifier("profile", profile); err != nil {
 		return "", err
 	}
@@ -107,15 +123,29 @@ func InstallArtifact(src io.Reader, dest string, expectedSha256 string, stateDir
 	defer func() {
 		if tempFile != nil {
 			_ = tempFile.Close()
-			_ = os.Remove(tempName)
 		}
+		// Closing the handle does not finish the transaction: backup or rename
+		// can still fail. Always remove the temporary path if it remains.
+		_ = os.Remove(tempName)
 	}()
 
-	hasher := sign.NewHasher() // need to add this to pkg/sign
+	hasher := sign.NewHasher()
 	multiWriter := io.MultiWriter(tempFile, hasher)
 
-	if _, err := io.Copy(multiWriter, src); err != nil {
+	written, err := io.Copy(multiWriter, io.LimitReader(src, size))
+	if err != nil {
 		return "", err
+	}
+	if exactSize && written != size {
+		return "", fmt.Errorf("artifact size mismatch: expected %d bytes, got %d", size, written)
+	}
+	// Read at most one extra byte to detect oversized streams, without writing
+	// data beyond the signed size (or the legacy API limit) to disk.
+	var extra [1]byte
+	if n, err := io.ReadFull(src, extra[:]); n != 0 {
+		return "", fmt.Errorf("artifact exceeds size limit of %d bytes", size)
+	} else if err != io.EOF {
+		return "", fmt.Errorf("failed to finish artifact download: %w", err)
 	}
 
 	actualSha256 := hasher.Sum()
@@ -123,6 +153,13 @@ func InstallArtifact(src io.Reader, dest string, expectedSha256 string, stateDir
 		return "", fmt.Errorf("SHA256 mismatch: expected %s, got %s", expectedSha256, actualSha256)
 	}
 
+	// Finalize permissions before replacement, so a chmod failure leaves the
+	// installed artifact intact and the temporary file can still be removed.
+	if runtime.GOOS != "windows" && (artifactType == "binary" || artifactType == "exe") {
+		if err := tempFile.Chmod(0755); err != nil {
+			return "", err
+		}
+	}
 	if err := tempFile.Close(); err != nil {
 		return "", err
 	}
@@ -143,13 +180,6 @@ func InstallArtifact(src io.Reader, dest string, expectedSha256 string, stateDir
 	// Atomic replace
 	if err := os.Rename(tempName, dest); err != nil {
 		return "", err
-	}
-
-	// Mark executable only for executable artifact types (on non-Windows).
-	if runtime.GOOS != "windows" && (artifactType == "binary" || artifactType == "exe") {
-		if err := os.Chmod(dest, 0755); err != nil {
-			return "", err
-		}
 	}
 
 	return actualSha256, nil

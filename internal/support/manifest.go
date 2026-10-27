@@ -2,9 +2,7 @@ package support
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 
 	"github.com/alapierre/itrust-updater/pkg/backend"
 	"github.com/alapierre/itrust-updater/pkg/manifest"
@@ -19,9 +17,9 @@ func FetchAndVerifyManifest(ctx context.Context, b backend.Backend, expected man
 	}
 	defer pubKeyReader.Close()
 
-	pubKey, err := io.ReadAll(pubKeyReader)
+	pubKey, err := sign.ReadPublicKey(pubKeyReader)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to read public key: %v", err)
+		return nil, nil, fmt.Errorf("failed to read public key: %w", err)
 	}
 
 	if err := sign.VerifyFingerprint(pubKey, expectedPubkeySha); err != nil {
@@ -43,14 +41,14 @@ func FetchAndVerifyManifest(ctx context.Context, b backend.Backend, expected man
 	}
 	defer manifestReader.Close()
 
-	var m manifest.Manifest
-	if err := json.NewDecoder(manifestReader).Decode(&m); err != nil {
-		return nil, nil, fmt.Errorf("failed to decode manifest: %v", err)
+	m, err := manifest.Read(manifestReader)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	if err := m.VerifyFor(pubKey, expected); err != nil {
 		return nil, nil, err
 	}
 
-	return &m, pubKey, nil
+	return m, pubKey, nil
 }

@@ -79,7 +79,10 @@ func handleStatus(ctx context.Context, profile string, nonInteractive, useKeyrin
 
 	var b backend.Backend
 	if backendType == "nexus" {
-		b = backend.NewNexusBackend(baseURL, username, password)
+		b, err = support.NewNexusBackend(baseURL, username, password, cfg)
+		if err != nil {
+			return err
+		}
 	} else {
 		logger.Errorf("Unsupported backend: %s", backendType)
 		return nil

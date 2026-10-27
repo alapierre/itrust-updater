@@ -377,3 +377,63 @@ func TestGetExplicitVersionFromOriginalReleaseChannel(t *testing.T) {
 	f.mustGet("1.0.0")
 	f.assertVersion("1.0.0")
 }
+
+func TestGetRejectsSignedSizeMismatch(t *testing.T) {
+	for _, scenario := range []string{"too small", "too large", "negative"} {
+		t.Run(scenario, func(t *testing.T) {
+			f := newUpdateFixture(t)
+			f.channel(f.release("1.0.0", 1))
+			f.mustGet("")
+			m := f.release("2.0.0", 2)
+			switch scenario {
+			case "too small":
+				m.Payload.Latest.Artifacts[0].Size--
+			case "too large":
+				m.Payload.Latest.Artifacts[0].Size++
+			case "negative":
+				m.Payload.Latest.Artifacts[0].Size = -1
+			}
+			m, err := manifest.SignManifest(m.Payload, f.seed, "test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.channel(m)
+			if err := f.get("", false); err == nil || !strings.Contains(err.Error(), "size") {
+				t.Fatalf("expected size rejection, got %v", err)
+			}
+			f.assertVersion("1.0.0")
+			st, err := install.LoadState(f.stateDir, "profile")
+			if err != nil || st.InstalledVersion != "1.0.0" {
+				t.Fatalf("installation state changed: %+v %v", st, err)
+			}
+			paths, err := filepath.Glob(filepath.Join(filepath.Dir(f.dest), "itrust-update-*"))
+			if err != nil || len(paths) != 0 {
+				t.Fatalf("temporary files left: %v %v", paths, err)
+			}
+		})
+	}
+}
+
+func TestGetRejectsOversizedMetadataBeforeArtifactDownload(t *testing.T) {
+	for _, resource := range []string{"key", "manifest"} {
+		t.Run(resource, func(t *testing.T) {
+			f := newUpdateFixture(t)
+			f.channel(f.release("1.0.0", 1))
+			f.mu.Lock()
+			if resource == "key" {
+				f.responses["/repo/public-keys/ed25519.pub"] = make([]byte, 33)
+			} else {
+				f.responses["/apps/app/channels/stable.json"] = []byte(strings.Repeat(" ", int(manifest.MaxManifestSize)+1))
+			}
+			f.mu.Unlock()
+			if err := f.get("", false); err == nil {
+				t.Fatal("oversized metadata accepted")
+			}
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			if f.artifactRequests != 0 {
+				t.Fatal("download started with oversized metadata")
+			}
+		})
+	}
+}
