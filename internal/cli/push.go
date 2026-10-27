@@ -175,7 +175,10 @@ func handlePush(ctx context.Context, configPath, artifactPathFlag, repoIDFlag, a
 
 	var b backend.Backend
 	if backendType == "nexus" {
-		b = backend.NewNexusBackend(baseURL, username, password)
+		b, err = support.NewNexusBackend(baseURL, username, password, cfg)
+		if err != nil {
+			return err
+		}
 	} else {
 		return fmt.Errorf("unsupported backend: %s", backendType)
 	}
@@ -194,12 +197,11 @@ func handlePush(ctx context.Context, configPath, artifactPathFlag, repoIDFlag, a
 		if err != nil {
 			return fmt.Errorf("failed to fetch existing manifest: %w", err)
 		}
-		var m manifest.Manifest
-		if err := json.NewDecoder(rc).Decode(&m); err != nil {
-			rc.Close()
-			return fmt.Errorf("failed to decode existing manifest: %w", err)
-		}
+		m, err := manifest.Read(rc)
 		rc.Close()
+		if err != nil {
+			return fmt.Errorf("failed to read existing manifest: %w", err)
+		}
 		expected := manifest.Identity{RepoID: repoID, AppID: appId, Version: version}
 		if err := m.VerifyFor(pubKey, expected); err != nil {
 			return fmt.Errorf("refusing to merge existing release manifest: %w", err)
@@ -217,26 +219,7 @@ func handlePush(ctx context.Context, configPath, artifactPathFlag, repoIDFlag, a
 		}
 	}
 
-	// 2. Upload artifact
-	fmt.Printf("Uploading artifact to %s\n", remoteArtifactPath)
-	logger.Infof("Uploading artifact to %s", remoteArtifactPath)
-	openArtifact := func() (io.ReadCloser, error) {
-		return os.Open(artifactPath)
-	}
-	if err := b.Put(ctx, remoteArtifactPath, openArtifact, "application/octet-stream"); err != nil {
-		return fmt.Errorf("upload failed: %w", err)
-	}
-
-	// 3. Upload SHA256
-	logger.Debug("Uploading SHA256")
-	openSha := func() (io.ReadCloser, error) {
-		return io.NopCloser(strings.NewReader(sha256)), nil
-	}
-	if err := b.Put(ctx, remoteArtifactPath+".sha256", openSha, "text/plain"); err != nil {
-		logger.Errorf("Failed to upload SHA256: %v", err)
-	}
-
-	// 4. Create and upload artifacts.json (version manifest)
+	// Prepare and validate the merged manifest before modifying the repository.
 	newArt := manifest.Artifact{
 		OS:     goos,
 		Arch:   goarch,
@@ -274,7 +257,7 @@ func handlePush(ctx context.Context, configPath, artifactPathFlag, repoIDFlag, a
 		},
 	}
 
-	logger.Infof("Signing and uploading manifest")
+	logger.Infof("Signing manifest")
 	m, err := manifest.SignManifest(payload, seed, "repo-key-"+time.Now().Format("2006-01"))
 	if err != nil {
 		return fmt.Errorf("failed to sign manifest: %w", err)
@@ -284,6 +267,27 @@ func handlePush(ctx context.Context, configPath, artifactPathFlag, repoIDFlag, a
 	if err != nil {
 		return fmt.Errorf("failed to marshal manifest: %w", err)
 	}
+	if int64(len(mJson)) > manifest.MaxManifestSize {
+		return fmt.Errorf("generated manifest exceeds size limit of %d bytes", manifest.MaxManifestSize)
+	}
+
+	// Upload artifact and checksum only after the manifest passes validation.
+	fmt.Printf("Uploading artifact to %s\n", remoteArtifactPath)
+	logger.Infof("Uploading artifact to %s", remoteArtifactPath)
+	openArtifact := func() (io.ReadCloser, error) {
+		return os.Open(artifactPath)
+	}
+	if err := b.Put(ctx, remoteArtifactPath, openArtifact, "application/octet-stream"); err != nil {
+		return fmt.Errorf("upload failed: %w", err)
+	}
+	logger.Debug("Uploading SHA256")
+	openSha := func() (io.ReadCloser, error) {
+		return io.NopCloser(strings.NewReader(sha256)), nil
+	}
+	if err := b.Put(ctx, remoteArtifactPath+".sha256", openSha, "text/plain"); err != nil {
+		logger.Errorf("Failed to upload SHA256: %v", err)
+	}
+
 	openManifest := func() (io.ReadCloser, error) {
 		return io.NopCloser(strings.NewReader(string(mJson))), nil
 	}
@@ -293,7 +297,7 @@ func handlePush(ctx context.Context, configPath, artifactPathFlag, repoIDFlag, a
 		return fmt.Errorf("failed to upload version manifest: %w", err)
 	}
 
-	// 5. Update channel manifest
+	// Update channel manifest.
 	channelManifestPath := fmt.Sprintf("apps/%s/channels/%s.json", appId, channel)
 	logger.Infof("Updating channel manifest: %s", channelManifestPath)
 	if err := b.Put(ctx, channelManifestPath, openManifest, "application/json"); err != nil {

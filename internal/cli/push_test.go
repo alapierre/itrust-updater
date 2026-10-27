@@ -124,7 +124,7 @@ func (f *pushFixture) push(force bool) error {
 }
 
 func TestPushRejectsUntrustedManifestBeforeAnyUpload(t *testing.T) {
-	for _, scenario := range []string{"unsigned", "tampered artifact", "attacker key", "wrong app", "wrong version", "wrong repo", "missing repo", "unsupported schema", "unsupported algorithm", "malformed JSON"} {
+	for _, scenario := range []string{"unsigned", "tampered artifact", "attacker key", "wrong app", "wrong version", "wrong repo", "missing repo", "unsupported schema", "unsupported algorithm", "malformed JSON", "oversized manifest"} {
 		for _, force := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/force=%v", scenario, force), func(t *testing.T) {
 				f := newPushFixture(t)
@@ -166,6 +166,11 @@ func TestPushRejectsUntrustedManifestBeforeAnyUpload(t *testing.T) {
 				if scenario == "malformed JSON" {
 					f.mu.Lock()
 					f.existing = []byte("{")
+					f.mu.Unlock()
+				}
+				if scenario == "oversized manifest" {
+					f.mu.Lock()
+					f.existing = append(f.existing, []byte(strings.Repeat(" ", int(manifest.MaxManifestSize)))...)
 					f.mu.Unlock()
 				}
 				if err := f.push(force); err == nil {
@@ -272,5 +277,18 @@ func TestPushStillRequiresForceForExistingPlatform(t *testing.T) {
 	defer f.mu.Unlock()
 	if len(f.uploads) != 0 {
 		t.Fatal("platform conflict caused uploads")
+	}
+}
+
+func TestPushRejectsOversizedGeneratedManifestBeforeAnyUpload(t *testing.T) {
+	f := newPushFixture(t)
+	t.Setenv("ITRUST_APP_NAME", strings.Repeat("a", int(manifest.MaxManifestSize)))
+	if err := f.push(false); err == nil || !strings.Contains(err.Error(), "generated manifest exceeds size limit") {
+		t.Fatalf("expected generated manifest size rejection, got %v", err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.uploads) != 0 {
+		t.Fatal("manifest size rejection occurred after upload")
 	}
 }
