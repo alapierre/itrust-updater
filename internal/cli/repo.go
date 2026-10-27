@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/alapierre/itrust-updater/internal/support"
-	"github.com/alapierre/itrust-updater/pkg/backend"
 	"github.com/alapierre/itrust-updater/pkg/config"
 	"github.com/alapierre/itrust-updater/pkg/repo"
 	"github.com/alapierre/itrust-updater/pkg/secrets"
@@ -79,7 +78,11 @@ func handleRepoInit(ctx context.Context, repoID, baseURL, user, pass, pubkeyPath
 		store = &secrets.KeyringSecretStore{}
 	}
 	options := repoInitOptions{ConfigDir: support.GetDefaultConfigDir(), Repo: rc, Username: user, Password: pass}
-	return initializeRepo(ctx, options, backend.NewNexusBackend(baseURL, user, pass), store, os.Stdout)
+	b, err := support.NewNexusBackend(baseURL, user, pass, config.GetEnvConfig())
+	if err != nil {
+		return err
+	}
+	return initializeRepo(ctx, options, b, store, os.Stdout)
 }
 
 func handleRepoConfig(repoID string) error {

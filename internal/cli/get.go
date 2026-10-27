@@ -92,7 +92,10 @@ func handleGet(ctx context.Context, profile, version, destOverride, goos, goarch
 	var b backend.Backend
 	if backendType == "nexus" {
 		logger.Debugf("Using Nexus backend at %s", baseURL)
-		b = backend.NewNexusBackend(baseURL, username, password)
+		b, err = support.NewNexusBackend(baseURL, username, password, cfg)
+		if err != nil {
+			return err
+		}
 	} else {
 		return fmt.Errorf("unsupported backend: %s", backendType)
 	}
@@ -143,6 +146,9 @@ func handleGet(ctx context.Context, profile, version, destOverride, goos, goarch
 	if err != nil {
 		return fmt.Errorf("artifact not found: %w", err)
 	}
+	if artifact.Size < 0 {
+		return fmt.Errorf("invalid signed artifact size: %d", artifact.Size)
+	}
 	logger.Debugf("Found artifact: %s", artifact.URL)
 
 	// Resolve destination if it's a directory
@@ -177,7 +183,7 @@ func handleGet(ctx context.Context, profile, version, destOverride, goos, goarch
 	defer artifactReader.Close()
 
 	logger.Infof("Installing artifact to %s", dest)
-	actualSha, err := install.InstallArtifact(artifactReader, dest, artifact.Sha256, stateDir, profile, artifact.Type)
+	actualSha, err := install.InstallArtifactWithSize(artifactReader, dest, artifact.Sha256, stateDir, profile, artifact.Type, artifact.Size)
 	if err != nil {
 		return fmt.Errorf("installation failed: %w", err)
 	}

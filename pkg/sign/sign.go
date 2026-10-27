@@ -71,6 +71,9 @@ func Sign(payload []byte, seedB64 string) (string, error) {
 }
 
 func Verify(payload []byte, sigB64 string, pubKey []byte) error {
+	if len(pubKey) != ed25519.PublicKeySize {
+		return fmt.Errorf("invalid public key size: expected %d, got %d", ed25519.PublicKeySize, len(pubKey))
+	}
 	sig, err := base64.StdEncoding.DecodeString(sigB64)
 	if err != nil {
 		return fmt.Errorf("failed to decode signature: %v", err)
@@ -79,6 +82,18 @@ func Verify(payload []byte, sigB64 string, pubKey []byte) error {
 		return fmt.Errorf("invalid signature")
 	}
 	return nil
+}
+
+// ReadPublicKey bounds untrusted input before fingerprint or signature checks.
+func ReadPublicKey(r io.Reader) ([]byte, error) {
+	key, err := io.ReadAll(io.LimitReader(r, ed25519.PublicKeySize+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(key) != ed25519.PublicKeySize {
+		return nil, fmt.Errorf("invalid public key size: expected %d bytes", ed25519.PublicKeySize)
+	}
+	return key, nil
 }
 
 func SeedToPubKey(seedB64 string) ([]byte, error) {

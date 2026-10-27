@@ -3,6 +3,7 @@ package manifest
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/alapierre/itrust-updater/pkg/jcs"
@@ -11,6 +12,24 @@ import (
 )
 
 var logger = logging.Component("pkg/manifest")
+
+// MaxManifestSize applies to the entire JSON document, including whitespace.
+const MaxManifestSize int64 = 1 << 20
+
+func Read(r io.Reader) (*Manifest, error) {
+	data, err := io.ReadAll(io.LimitReader(r, MaxManifestSize+1))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read manifest: %w", err)
+	}
+	if int64(len(data)) > MaxManifestSize {
+		return nil, fmt.Errorf("manifest exceeds size limit of %d bytes", MaxManifestSize)
+	}
+	var m Manifest
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, fmt.Errorf("failed to decode manifest: %w", err)
+	}
+	return &m, nil
+}
 
 type Signature struct {
 	Alg           string    `json:"alg"`

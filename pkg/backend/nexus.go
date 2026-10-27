@@ -21,6 +21,8 @@ type NexusBackend struct {
 	Username string
 	Password string
 	Client   *http.Client
+	// Zero uses DefaultTransferIdleTimeout. This is not a total request timeout.
+	TransferIdleTimeout time.Duration
 }
 
 func NewNexusBackend(baseURL, username, password string) *NexusBackend {
@@ -73,8 +75,13 @@ func (n *NexusBackend) executeWithRetry(ctx context.Context, method, url string,
 			defer body.Close()
 		}
 
-		req, err := http.NewRequestWithContext(ctx, method, url, body)
+		watchdog := newTransferWatchdog(ctx, n.TransferIdleTimeout)
+		if body != nil {
+			body = &progressReader{ReadCloser: body, watchdog: watchdog}
+		}
+		req, err := http.NewRequestWithContext(watchdog.ctx, method, url, body)
 		if err != nil {
+			watchdog.stop()
 			return backoff.Permanent(err)
 		}
 
@@ -87,6 +94,8 @@ func (n *NexusBackend) executeWithRetry(ctx context.Context, method, url string,
 
 		resp, err = n.Client.Do(req)
 		if err != nil {
+			err = watchdog.transferError(err)
+			watchdog.stop()
 			if ctx.Err() != nil {
 				return backoff.Permanent(ctx.Err())
 			}
@@ -96,6 +105,8 @@ func (n *NexusBackend) executeWithRetry(ctx context.Context, method, url string,
 			}
 			return backoff.Permanent(err)
 		}
+		watchdog.progress()
+		resp.Body = &watchedResponseBody{progressReader{ReadCloser: resp.Body, watchdog: watchdog}}
 
 		if isRetryableStatus(resp.StatusCode) {
 			logger.Debugf("Retrying %s %s, attempt %d, status: %d", method, url, attempt, resp.StatusCode)
@@ -117,6 +128,9 @@ func (n *NexusBackend) executeWithRetry(ctx context.Context, method, url string,
 func isRetryableError(err error) bool {
 	if err == nil {
 		return false
+	}
+	if errors.Is(err, ErrTransferIdleTimeout) {
+		return true
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
