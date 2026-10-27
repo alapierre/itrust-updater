@@ -24,7 +24,10 @@ func handleStatus(ctx context.Context, profile string, nonInteractive, useKeyrin
 	logger.Infof("Checking status for profile %s", profile)
 	configDir, stateDir := support.GetPaths("", "")
 
-	cfg := support.LoadConfigWithRepoOverlay(configDir, profile)
+	cfg, err := support.LoadConfigWithRepoOverlay(configDir, profile)
+	if err != nil {
+		return err
+	}
 
 	repoID := cfg.Get("ITRUST_REPO_ID", "")
 	baseURL := cfg.Get("ITRUST_BASE_URL", "")

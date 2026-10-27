@@ -1,11 +1,19 @@
 package secrets
 
-import "github.com/zalando/go-keyring"
+import (
+	"errors"
+
+	"github.com/zalando/go-keyring"
+)
 
 type KeyringSecretStore struct{}
 
 func (k *KeyringSecretStore) Get(service, key string) (string, error) {
-	return keyring.Get(service, key)
+	value, err := keyring.Get(service, key)
+	if errors.Is(err, keyring.ErrNotFound) {
+		return "", ErrNotFound
+	}
+	return value, err
 }
 
 func (k *KeyringSecretStore) Set(service, key, value string) error {

@@ -1,5 +1,9 @@
 package secrets
 
+import "errors"
+
+var ErrNotFound = errors.New("secret not found")
+
 type SecretStore interface {
 	Get(service, key string) (string, error)
 	Set(service, key, value string) error

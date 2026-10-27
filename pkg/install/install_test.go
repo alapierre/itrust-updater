@@ -107,3 +107,20 @@ func TestInstallArtifact_DmgPermissions(t *testing.T) {
 		t.Errorf("Expected no executable bits for dmg, got %v", mode)
 	}
 }
+
+func TestProfileTraversalRejectedBeforeFileAccess(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := LoadState(dir, "../victim"); err == nil {
+		t.Fatal("unsafe state read accepted")
+	}
+	if err := SaveState(dir, "../victim", &State{}); err == nil {
+		t.Fatal("unsafe state write accepted")
+	}
+	dest := filepath.Join(dir, "app")
+	if _, err := InstallArtifact(strings.NewReader("content"), dest, "ignored", dir, "../victim", "binary"); err == nil {
+		t.Fatal("unsafe backup profile accepted")
+	}
+	if _, err := os.Stat(dest); !os.IsNotExist(err) {
+		t.Fatal("artifact written with unsafe profile")
+	}
+}

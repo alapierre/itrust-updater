@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/alapierre/itrust-updater/pkg/config"
 	"github.com/alapierre/itrust-updater/pkg/sign"
 )
 
@@ -27,6 +28,9 @@ type State struct {
 }
 
 func LoadState(stateDir, profile string) (*State, error) {
+	if err := config.ValidateIdentifier("profile", profile); err != nil {
+		return nil, err
+	}
 	path := filepath.Join(stateDir, "state", profile+".json")
 	f, err := os.Open(path)
 	if err != nil {
@@ -44,6 +48,9 @@ func LoadState(stateDir, profile string) (*State, error) {
 }
 
 func SaveState(stateDir, profile string, state *State) error {
+	if err := config.ValidateIdentifier("profile", profile); err != nil {
+		return err
+	}
 	path := filepath.Join(stateDir, "state", profile+".json")
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -84,6 +91,9 @@ func SaveState(stateDir, profile string, state *State) error {
 }
 
 func InstallArtifact(src io.Reader, dest string, expectedSha256 string, stateDir, profile string, artifactType string) (string, error) {
+	if err := config.ValidateIdentifier("profile", profile); err != nil {
+		return "", err
+	}
 	destDir := filepath.Dir(dest)
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create destination directory: %v", err)

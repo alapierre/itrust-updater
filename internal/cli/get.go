@@ -33,7 +33,10 @@ func handleGet(ctx context.Context, profile, version, destOverride, goos, goarch
 	logger.Infof("Starting get for profile %s, version %s", profile, version)
 	logger.Debugf("Config dir: %s, state dir: %s", configDir, stateDir)
 
-	cfg := support.LoadConfigWithRepoOverlay(configDir, profile)
+	cfg, err := support.LoadConfigWithRepoOverlay(configDir, profile)
+	if err != nil {
+		return err
+	}
 
 	repoID := cfg.Get("ITRUST_REPO_ID", "")
 	baseURL := cfg.Get("ITRUST_BASE_URL", "")
