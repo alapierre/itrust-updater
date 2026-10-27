@@ -52,6 +52,8 @@ Manage repository configurations and secrets.
     3. Interactive prompt (if not `--non-interactive`, supports masked password entry).
   - In non-interactive mode, if credentials are missing, it will fail with a clear message.
   - Verifies the repository public key fingerprint and the manifest signature. Performs an atomic update with a backup of the previous version.
+  - Empty `--version` or `--version latest` rejects channel manifests older than the last accepted signed `generatedAt`, including when `--force` is used. A different payload with the same timestamp is also rejected.
+  - An explicit `--version <ver>` allows an intentional downgrade without lowering the saved manifest checkpoint. A publisher can roll back a channel by signing a new manifest with a later `generatedAt` and the desired older application version.
 - **`status <profile> [--use-keyring] [--non-interactive]`**:
   Shows installation status and checks for updates. Performs secure manifest verification using the same authentication hierarchy as `get`. If credentials are missing in non-interactive mode, latest version will be shown as `unverified`.
 - **`push --artifact-path <path> [--repo-id <id>] [--app-id <id>] [--version <ver>] [--run-hooks] [--force]`**:
@@ -103,10 +105,23 @@ Supports `.env` style configuration files and environment variables.
 
 - **Mandatory Signing**: All manifests must be signed using Ed25519.
 - **Key Pinning**: Fingerprint of the repository public key is verified before any update.
+- **Manifest Replay Protection**: `get` persists the newest verified manifest timestamp and payload hash separately from installed-version state, scoped to the profile, signing-key fingerprint, application, and channel. `status` checks these saved checkpoints without advancing them.
 - **Atomic Replace**: Artifacts are downloaded to a temporary file and renamed atomically.
 - **Masked Input**: Passwords are read from the terminal without echoing.
 - **JCS (RFC 8785)**: JSON Canonicalization Scheme is used for signing consistency.
 - **Keyring**: Securely stores secrets (passwords, signing seeds) using the OS keyring (opt-in via `--use-keyring` or `--store-credentials`).
+
+### Replay protection and existing installations
+
+The ordering field is `payload.generatedAt`, which is covered by the Ed25519 signature; the unsigned `signature.createdAt` is not used. Publishers must give every changed channel manifest a strictly increasing timestamp. Keep publisher clocks synchronized. Application version strings need not follow semantic versioning.
+
+Checkpoints live in `<stateDir>/manifest-history/` and are saved before downloading an artifact, including when the current installation is already up to date. An explicit historical installation preserves newer checkpoints. Invalid history or a failure to persist it stops installation. Keep this directory when migrating state: removing it, selecting a new state directory, or changing the pinned key starts a new trust history.
+
+On upgrading an existing installation without history, `get` first verifies the manifest for the locally recorded installed version, including its application, channel, and artifact hash. That signed manifest establishes the baseline before the requested version or channel is accepted. The installed release manifest must remain available and match the saved state; otherwise the command fails instead of silently trusting the current channel. Changing the pinned key can therefore require making the installed release verifiable with the new key before migration.
+
+A first installation has no earlier trusted checkpoint and cannot detect replay of metadata it has never seen. This mechanism also does not detect a server indefinitely withholding newer releases. It protects against replay relative to saved local history, not against compromise of the signing key or local state.
+
+Updates of the same profile and state directory are serialized by a lock in `<stateDir>/locks/`. Normal completion releases the lock. After a crash or forced termination, the error identifies the lock directory; remove it only after confirming that no updater for that profile is still running. Protect the state directory from untrusted local modification.
 
 ## CI/CD Integration
 

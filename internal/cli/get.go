@@ -14,13 +14,13 @@ import (
 
 type GetCmd struct {
 	Profile   string `arg:"" help:"Profile name."`
-	Version   string `help:"Specific version to install (v1 supports 'latest' only via channel manifest)."`
+	Version   string `help:"Specific version to install, including an intentional downgrade. Empty or 'latest' checks channel replay protection."`
 	Dest      string `help:"Override destination path."`
 	Os        string `default:"${default_os}" help:"Override operating system."`
 	Arch      string `default:"${default_arch}" help:"Override architecture."`
 	ConfigDir string `help:"Override configuration directory."`
 	StateDir  string `help:"Override state directory."`
-	Force     bool   `help:"Force download and installation."`
+	Force     bool   `help:"Force download and installation without bypassing manifest replay protection."`
 }
 
 func (c *GetCmd) Run(g *Globals) error {
@@ -50,12 +50,28 @@ func handleGet(ctx context.Context, profile, version, destOverride, goos, goarch
 	if baseURL == "" || appId == "" || expectedPubkeySha == "" || dest == "" {
 		return fmt.Errorf("missing required configuration (ITRUST_BASE_URL, ITRUST_APP_ID, ITRUST_REPO_PUBKEY_SHA256, ITRUST_DEST)")
 	}
+	unlock, err := install.LockProfile(stateDir, profile)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := unlock(); err != nil {
+			logger.Errorf("Failed to release profile lock: %v", err)
+		}
+	}()
+	st, err := install.LoadState(stateDir, profile)
+	if err != nil {
+		return fmt.Errorf("failed to load installation state: %w", err)
+	}
+	history, err := install.LoadManifestHistory(stateDir, profile)
+	if err != nil {
+		return fmt.Errorf("failed to load manifest history: %w", err)
+	}
 
 	username := cfg.Get("ITRUST_NEXUS_USERNAME", "")
 	password := os.Getenv("ITRUST_NEXUS_PASSWORD")
 	username, password = loadNexusCredentialsFromKeyring(username, password, repoID, useKeyring)
 
-	var err error
 	username, password, err = promptForNexusCredentials(username, password, nonInteractive)
 	if err != nil {
 		return err
@@ -76,11 +92,45 @@ func handleGet(ctx context.Context, profile, version, destOverride, goos, goarch
 	} else {
 		return fmt.Errorf("unsupported backend: %s", backendType)
 	}
+	if history == nil {
+		history = &install.ManifestHistory{}
+		// Older updater versions did not save signed timestamps. Establish a
+		// baseline from the installed release, never from the channel being checked.
+		if st != nil && st.AppID == appId && st.InstalledVersion != "" {
+			baseline, _, err := support.FetchAndVerifyManifest(ctx, b, appId, st.Channel, st.InstalledVersion, pubkeyPath, expectedPubkeySha)
+			if err != nil {
+				return fmt.Errorf("cannot initialize replay protection from installed version %s: %w", st.InstalledVersion, err)
+			}
+			if baseline.Payload.Channel != st.Channel {
+				return fmt.Errorf("cannot initialize replay protection: installed release manifest channel does not match saved state")
+			}
+			installedArtifact, err := baseline.FindArtifact(st.OS, st.Arch)
+			if err != nil || installedArtifact.Sha256 != st.InstalledSha256 {
+				return fmt.Errorf("cannot initialize replay protection: installed release manifest does not match saved artifact")
+			}
+			if _, err := history.Accept(baseline, expectedPubkeySha, false); err != nil {
+				return err
+			}
+			if err := install.SaveManifestHistory(stateDir, profile, history); err != nil {
+				return fmt.Errorf("failed to persist manifest history: %w", err)
+			}
+		}
+	}
 
 	logger.Infof("Fetching manifest for %s (channel: %s, version: %s)", appId, channel, version)
 	m, _, err := support.FetchAndVerifyManifest(ctx, b, appId, channel, version, pubkeyPath, expectedPubkeySha)
 	if err != nil {
 		return fmt.Errorf("failed to fetch/verify manifest: %w", err)
+	}
+	explicitVersion := version != "" && version != "latest"
+	changed, err := history.Accept(m, expectedPubkeySha, explicitVersion)
+	if err != nil {
+		return err
+	}
+	if changed {
+		if err := install.SaveManifestHistory(stateDir, profile, history); err != nil {
+			return fmt.Errorf("failed to persist manifest history: %w", err)
+		}
 	}
 
 	artifact, err := m.FindArtifact(goos, goarch)
@@ -101,8 +151,7 @@ func handleGet(ctx context.Context, profile, version, destOverride, goos, goarch
 	logger.Debugf("Resolved destination path: %s", dest)
 
 	// 3. Check state
-	st, err := install.LoadState(stateDir, profile)
-	if err == nil && st != nil && !force {
+	if st != nil && !force {
 		if st.InstalledVersion == m.Payload.Latest.Version && st.InstalledSha256 == artifact.Sha256 {
 			if _, err := os.Stat(dest); err == nil {
 				fmt.Printf("Application %s is up to date (version %s)\n", appId, st.InstalledVersion)
@@ -142,7 +191,7 @@ func handleGet(ctx context.Context, profile, version, destOverride, goos, goarch
 		BackendInfo:      backendType,
 	}
 	if err := install.SaveState(stateDir, profile, newState); err != nil {
-		logger.Errorf("Failed to save state: %v", err)
+		return fmt.Errorf("artifact installed, but failed to save installation state: %w", err)
 	}
 
 	fmt.Printf("Successfully installed %s version %s to %s\n", appId, m.Payload.Latest.Version, dest)

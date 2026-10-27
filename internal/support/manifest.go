@@ -48,6 +48,16 @@ func FetchAndVerifyManifest(ctx context.Context, b backend.Backend, appId, chann
 	if err := m.Verify(pubKey); err != nil {
 		return nil, nil, fmt.Errorf("manifest signature verification failed: %v", err)
 	}
+	if m.Payload.App.ID != appId {
+		return nil, nil, fmt.Errorf("manifest app ID mismatch: expected %q, got %q", appId, m.Payload.App.ID)
+	}
+	if version != "" && version != "latest" {
+		if m.Payload.Latest.Version != version {
+			return nil, nil, fmt.Errorf("manifest version mismatch: expected %q, got %q", version, m.Payload.Latest.Version)
+		}
+	} else if m.Payload.Channel != channel {
+		return nil, nil, fmt.Errorf("manifest channel mismatch: expected %q, got %q", channel, m.Payload.Channel)
+	}
 
 	return &m, pubKey, nil
 }
